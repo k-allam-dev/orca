@@ -34,8 +34,8 @@ A **seam** is a place where an Orca file has to change so our code can plug in. 
 
 | Seam | Orca file | What we add | Added in |
 |---|---|---|---|
-| Register our IPC handlers | `src/main/ipc/register-core-handlers/register-core-handlers.ts` (next to `registerJiraHandlers()`, around line 197) | one import and one `registerAutosfactoryHandlers(...)` call | not yet |
-| Expose our API to the renderer | `src/preload/index.ts` (next to `dashboard: dashboardApi`, around line 145) and `src/preload/api-types.ts` | one import and one entry in each | not yet |
+| Register our IPC handlers | `src/main/ipc/register-core-handlers/register-core-handlers.ts` (next to `registerJiraHandlers()`, around line 197) | one import and one `registerTicketHandlers(...)` call | step 5 (#19) |
+| Expose our API to the renderer | `src/preload/index.ts` (next to `dashboard: dashboardApi`, around line 145) and `src/preload/api-types.ts` | one import and one entry in each (`autosfactory`) | step 5 (#19) |
 | Show the board in the app | a sidebar entry and page route in the renderer: **not found yet**, to be located when step 6 (#20) starts | to be recorded | not yet |
 | Safer default launch | the agent default arguments for Claude (`agentDefaultArgs` and the chat permission default) | to be recorded in step 8 (#22) | not yet |
 
@@ -43,13 +43,12 @@ Line numbers drift fast at this commit rate. Search for the neighbouring call, n
 
 ## 3. Branches
 
-- **`main`: a mirror of upstream.** Only fast-forwarded to `upstream/main`, never committed to. GitHub's "Sync fork" button works as long as this stays true.
-- **`autosfactory`: our integration branch.** All our work lands here. **Make it the repository's default branch** (Settings, then Branches). Reason: a pull request closes its issue ("Closes #19") only when it merges into the *default* branch.
+- **`autosfactory`: our integration branch and the default branch** on GitHub (so "Closes #N" works). There is no `main` mirror: upstream is the `upstream` remote (`upstream/main`), and updates are merged into `autosfactory`.
 - **`step-N-short-name`: one branch per step issue**, branched from `autosfactory`, merged back by pull request inside the fork. Never open pull requests to `stablyai/orca` by accident: check the "base repository" on the pull request page.
 
 ## 4. Pulling in Orca's updates
 
-- Merge `main` into `autosfactory` (a merge, not a rebase, so our history is not rewritten): **at least once a week, and before starting any step that adds a seam.** One week is about 1,400 upstream commits at the measured rate. This cadence is a judgement, not measured, so lengthen or shorten it after the first few merges.
+- Merge `upstream/main` into `autosfactory` (a merge, not a rebase, so our history is not rewritten): **at least once a week, and before starting any step that adds a seam.** One week is about 1,400 upstream commits at the measured rate. This cadence is a judgement, not measured, so lengthen or shorten it after the first few merges.
 - After each merge run, in this order: `pnpm install`, `pnpm tc`, `pnpm test:changed --maxWorkers=2`, then start the app.
 - Native parts: if `pnpm install` has to rebuild any (`node-pty`, the two `windows-*` addons, `windows-process-tree`), they need Visual Studio Build Tools with the C++ compiler component. This is installed on the PC now.
 - The first test pull: `git fetch upstream main` **succeeded** on 2026-10-27, and with 0 commits ahead a merge is a clean fast-forward. It was not applied, to avoid changing files under a running app.
@@ -71,6 +70,6 @@ Line numbers drift fast at this commit rate. Search for the neighbouring call, n
 - **License:** Orca is MIT. Keep `LICENSE` and the copyright notice. A fork of a public repository stays public.
 
 ## 7. Open questions
-- **Telemetry:** Orca collects anonymous usage data (see its privacy and telemetry docs). Decide whether to turn it off in our build, since it runs next to company ticket data. Not checked what it sends.
+- **Telemetry (decided: off, see #32):** Orca collects anonymous usage data (see its privacy and telemetry docs). Decide whether to turn it off in our build, since it runs next to company ticket data. Not checked what it sends.
 - **Separate profile:** a released Orca is also installed on this PC. Whether the dev build shares its data folder with it is **not checked**. Orca has `pnpm dev:fresh` for a fresh profile.
 - **Where the board appears in the renderer** (see the ledger).
