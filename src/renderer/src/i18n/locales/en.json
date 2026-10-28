@@ -21273,5 +21273,44 @@
     "restartLocal": "Restart local daemon",
     "killAllLocal": "Kill all local sessions",
     "killFailed": "The terminal could not be ended. Last-observed sessions are retained."
+  },
+  "autosfactory": {
+    "board": {
+      "title": "Tickets",
+      "close": "Close ticket board",
+      "open": "Open ticket board",
+      "total": "{{count}} total"
+    },
+    "state": {
+      "new": "New",
+      "planning": "Planning",
+      "planReady": "Plan ready for review",
+      "implementing": "Implementing",
+      "waitingOnYou": "Waiting on you",
+      "changesReady": "Changes ready for review",
+      "prOpen": "PR open",
+      "done": "Done"
+    },
+    "agentStatus": {
+      "idle": "Idle",
+      "running": "Running",
+      "paused": "Paused",
+      "interrupted": "Interrupted",
+      "failed": "Failed"
+    },
+    "flag": {
+      "permissionRequest": "Permission request",
+      "jiraChanged": "Jira changed",
+      "usageLimit": "Usage limit",
+      "queued": "Queued"
+    },
+    "column": {
+      "empty": "None"
+    },
+    "card": {
+      "noAgent": "No agent",
+      "flags": "Flags",
+      "moveTo": "Move {{key}} to"
+    }
   }
 }
