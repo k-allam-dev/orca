@@ -17,6 +17,7 @@ import WorkspaceKanbanLaneCardList from './WorkspaceKanbanLaneCardList'
 import { serializeWorkspaceLaneFullIds } from './workspace-kanban-filtered-drop-index'
 import { getWorkspaceStatusVisualMeta } from './workspace-status'
 import { translate } from '@/i18n/i18n'
+import { UnstartedTicketsLaneSection } from '../autosfactory/UnstartedTicketsLaneSection'
 
 type WorkspaceKanbanStatusLaneProps = {
   status: WorkspaceStatusDefinition
@@ -182,6 +183,7 @@ function WorkspaceKanbanStatusLane({
         data-workspace-board-lane-scroll=""
         className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-2 scrollbar-sleek"
       >
+        <UnstartedTicketsLaneSection statusId={status.id} />
         {items.length > 0 ? (
           renderCards ? (
             <WorkspaceKanbanLaneCardList
