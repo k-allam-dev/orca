@@ -408,7 +408,7 @@ describe('settings navigation metadata', () => {
 
     expect(desktopIds).toContain('advanced')
     expect(desktopIds.indexOf('advanced')).toBeLessThan(desktopIds.indexOf('experimental'))
-    expect(desktopIds.indexOf('privacy')).toBeLessThan(desktopIds.indexOf('advanced'))
+    expect(desktopIds).not.toContain('privacy')
   })
 
   // Note: this exercises the isDev parameter and isWebClient branches only.
