@@ -3,9 +3,24 @@ import { translate } from '@/i18n/i18n'
 import { useAutosfactoryBoardOpenStore } from './autosfactory-board-open-store'
 import { TicketBoard } from './TicketBoard'
 import { useTicketBoard } from './use-ticket-board'
+import { activeWorktreePath, openWorktreeTerminalByPath } from './ticket-workspace-link'
+import type { TicketRecord } from '../../../../shared/autosfactory/ticket-state'
 
 function OpenTicketBoard({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const { tickets, error, moveTicket } = useTicketBoard()
+  const { tickets, error, moveTicket, createTicket, linkWorktree } = useTicketBoard()
+  const openTicket = (ticket: TicketRecord): void => {
+    // Why: until the runner (step 9) creates a workspace per ticket, a ticket opens the workspace it is linked to; the first click links the workspace you were in.
+    const linked = ticket.worktreePath ?? activeWorktreePath()
+    if (!linked) {
+      return
+    }
+    if (!ticket.worktreePath) {
+      void linkWorktree(ticket.key, linked)
+    }
+    if (openWorktreeTerminalByPath(linked)) {
+      onClose()
+    }
+  }
   return (
     <div
       role="dialog"
@@ -28,6 +43,8 @@ function OpenTicketBoard({ onClose }: { onClose: () => void }): React.JSX.Elemen
       <TicketBoard
         tickets={tickets}
         onMoveTicket={moveTicket}
+        onOpenTicket={openTicket}
+        onCreateTicket={(key, title) => void createTicket(key, title)}
         containerClassName="min-h-0 flex-1"
       />
     </div>
@@ -45,9 +62,9 @@ export function AutosfactoryBoardHost(): React.JSX.Element {
       type="button"
       onClick={() => setOpen(true)}
       aria-label={translate('autosfactory.board.open', 'Open ticket board')}
-      className="fixed bottom-8 right-3 z-40 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      className="fixed bottom-10 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
-      <KanbanSquare className="size-3.5" />
+      <KanbanSquare className="size-4" />
       {translate('autosfactory.board.title', 'Tickets')}
     </button>
   )

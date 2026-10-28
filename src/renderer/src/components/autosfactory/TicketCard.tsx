@@ -22,17 +22,21 @@ type TicketCardProps = {
   ticket: TicketRecord
   flags?: TicketFlags
   onMove: (key: string, state: TicketState) => void
+  onOpen?: (ticket: TicketRecord) => void
 }
 
 export const TicketCard = memo(function TicketCard({
   ticket,
   flags,
-  onMove
+  onMove,
+  onOpen
 }: TicketCardProps): React.JSX.Element {
   const activeFlags = activeTicketFlags(flags)
   return (
     <div
       draggable
+      onClick={() => onOpen?.(ticket)}
+      title={translate('autosfactory.card.open', 'Click to open its terminal')}
       data-ticket-key={ticket.key}
       onDragStart={(event) => {
         event.dataTransfer.setData(TICKET_DRAG_TYPE, ticket.key)
@@ -78,6 +82,7 @@ export const TicketCard = memo(function TicketCard({
       <select
         aria-label={translate('autosfactory.card.moveTo', 'Move {{key}} to', { key: ticket.key })}
         value={ticket.state}
+        onClick={(event) => event.stopPropagation()}
         onChange={(event) => {
           const next = TICKET_STATES.find((state) => state === event.target.value)
           if (next) {

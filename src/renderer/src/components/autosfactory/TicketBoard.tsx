@@ -14,19 +14,66 @@ type TicketBoardProps = {
   tickets: readonly TicketRecord[]
   flagsByKey?: Readonly<Record<string, TicketFlags>>
   onMoveTicket: (key: string, state: TicketState) => void
+  onOpenTicket?: (ticket: TicketRecord) => void
+  onCreateTicket?: (key: string, title: string) => void
   containerClassName?: string
+}
+
+function NewTicketForm({
+  onCreate
+}: {
+  onCreate: (key: string, title: string) => void
+}): React.JSX.Element {
+  const [key, setKey] = useState('')
+  const [title, setTitle] = useState('')
+  const inputClass =
+    'rounded-md border border-border bg-background px-2 py-1 text-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none'
+  return (
+    <form
+      className="ml-auto mr-8 flex items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (key.trim() && title.trim()) {
+          onCreate(key.trim(), title.trim())
+          setKey('')
+          setTitle('')
+        }
+      }}
+    >
+      <input
+        value={key}
+        onChange={(event) => setKey(event.target.value)}
+        placeholder={translate('autosfactory.new.key', 'Key, e.g. SNPL-12')}
+        className={cn(inputClass, 'w-36')}
+      />
+      <input
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        placeholder={translate('autosfactory.new.title', 'Title')}
+        className={cn(inputClass, 'w-56')}
+      />
+      <button
+        type="submit"
+        className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:opacity-90"
+      >
+        {translate('autosfactory.new.add', 'New ticket')}
+      </button>
+    </form>
+  )
 }
 
 function TicketColumn({
   state,
   tickets,
   flagsByKey,
-  onMoveTicket
+  onMoveTicket,
+  onOpenTicket
 }: {
   state: TicketState
   tickets: readonly TicketRecord[]
   flagsByKey: Readonly<Record<string, TicketFlags>> | undefined
   onMoveTicket: (key: string, state: TicketState) => void
+  onOpenTicket: ((ticket: TicketRecord) => void) | undefined
 }): React.JSX.Element {
   const label = ticketStateLabel(state)
   const [dragOver, setDragOver] = useState(false)
@@ -75,6 +122,7 @@ function TicketColumn({
               ticket={ticket}
               flags={flagsByKey?.[ticket.key]}
               onMove={onMoveTicket}
+              onOpen={onOpenTicket}
             />
           ))
         )}
@@ -87,6 +135,8 @@ export function TicketBoard({
   tickets,
   flagsByKey,
   onMoveTicket,
+  onOpenTicket,
+  onCreateTicket,
   containerClassName = 'h-full w-full'
 }: TicketBoardProps): React.JSX.Element {
   const grouped = useMemo(() => groupTicketsByState(tickets), [tickets])
@@ -99,6 +149,7 @@ export function TicketBoard({
         <span className="text-[11px] text-muted-foreground">
           {translate('autosfactory.board.total', '{{count}} total', { count: tickets.length })}
         </span>
+        {onCreateTicket ? <NewTicketForm onCreate={onCreateTicket} /> : null}
       </div>
       <div className="scrollbar-sleek flex min-h-0 flex-1 overflow-x-auto p-3">
         <div className="flex w-full gap-3">
@@ -109,6 +160,7 @@ export function TicketBoard({
               tickets={grouped[state]}
               flagsByKey={flagsByKey}
               onMoveTicket={onMoveTicket}
+              onOpenTicket={onOpenTicket}
             />
           ))}
         </div>

@@ -12,6 +12,8 @@ export function useTicketBoard(): {
   tickets: TicketRecord[]
   error: string | null
   moveTicket: (key: string, state: TicketState) => void
+  createTicket: (key: string, title: string) => Promise<void>
+  linkWorktree: (key: string, worktreePath: string) => Promise<void>
 } {
   const [tickets, setTickets] = useState<TicketRecord[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -47,5 +49,24 @@ export function useTicketBoard(): {
     [reload]
   )
 
-  return { tickets, error, moveTicket }
+  const createTicket = useCallback(async (key: string, title: string) => {
+    try {
+      const created = await window.api.autosfactory.createTicket({ key, title })
+      setTickets((current) => [...current, created])
+      setError(null)
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : String(createError))
+    }
+  }, [])
+
+  const linkWorktree = useCallback(async (key: string, worktreePath: string) => {
+    try {
+      const saved = await window.api.autosfactory.updateTicket({ key, patch: { worktreePath } })
+      setTickets((current) => replaceTicket(current, saved))
+    } catch (linkError) {
+      setError(linkError instanceof Error ? linkError.message : String(linkError))
+    }
+  }, [])
+
+  return { tickets, error, moveTicket, createTicket, linkWorktree }
 }
