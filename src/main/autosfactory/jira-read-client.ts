@@ -52,5 +52,6 @@ export const orcaJiraReadClient: JiraReadClient = {
       updatedAt: issue.updatedAt
     }))
   },
-  getDescription: async (key) => (await getIssue(key, undefined, true))?.description ?? ''
+  getDescription: async (key) =>
+    (await getIssue(key, connectedClient().site.id, true))?.description ?? ''
 }
