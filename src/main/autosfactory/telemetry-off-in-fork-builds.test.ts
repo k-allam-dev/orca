@@ -1,30 +1,60 @@
-import { describe, expect, it, vi } from 'vitest'
-
-const postHogConstructor = vi.hoisted(() => vi.fn())
-
-vi.mock('posthog-node', () => ({ PostHog: postHogConstructor }))
-
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
 import type { Store } from '../persistence'
-import { initTelemetry, isTelemetryEnabled, track } from '../telemetry/client'
+import {
+  initTelemetry,
+  isTelemetryEnabled,
+  persistBannerAcknowledgeWithoutEmitting,
+  setOptIn,
+  shutdownTelemetry,
+  track,
+  trackAppOpenedOnce
+} from '../telemetry/client'
+import { resolveConsent } from '../telemetry/consent'
 
-// Why: our builds never get ORCA_POSTHOG_WRITE_KEY / ORCA_BUILD_IDENTITY, so Orca's own gate must keep telemetry dormant even for an opted-in profile.
-describe('telemetry in a fork build without the CI write key', () => {
-  it('never creates a PostHog client or transmits, even when the profile is opted in', () => {
+// Why: the fork removed telemetry; the exported functions stay as no-ops so call sites compile, and nothing may read or write settings.
+describe('telemetry in the fork build', () => {
+  const optedInSettings = {
+    telemetry: {
+      optedIn: true,
+      installId: '00000000-0000-4000-8000-000000000000',
+      existedBeforeTelemetryRelease: false
+    }
+  }
+
+  it('does nothing and never touches the store, even for an opted-in profile', async () => {
+    const touched: string[] = []
     const store = {
-      getSettings: () => ({
-        telemetry: {
-          optedIn: true,
-          installId: '00000000-0000-4000-8000-000000000000',
-          existedBeforeTelemetryRelease: false
-        }
-      })
+      getSettings: () => {
+        touched.push('getSettings')
+        return optedInSettings
+      },
+      updateSettings: () => {
+        touched.push('updateSettings')
+      }
     } as unknown as Store
 
     initTelemetry(store)
-
-    expect(postHogConstructor).not.toHaveBeenCalled()
     expect(isTelemetryEnabled()).toBe(false)
     expect(track('app_opened', {} as never)).toBe(false)
-    expect(postHogConstructor).not.toHaveBeenCalled()
+    trackAppOpenedOnce()
+    await setOptIn('settings', true)
+    await persistBannerAcknowledgeWithoutEmitting()
+    await shutdownTelemetry()
+
+    expect(touched).toEqual([])
+  })
+
+  it('reports consent as disabled whatever the settings say', () => {
+    expect(resolveConsent(optedInSettings as never).effective).toBe('disabled')
+  })
+
+  it('has no PostHog transport or dependency left', () => {
+    const root = join(__dirname, '..', '..', '..')
+    const pkg = readFileSync(join(root, 'package.json'), 'utf8')
+    const client = readFileSync(join(root, 'src', 'main', 'telemetry', 'client.ts'), 'utf8')
+    expect(pkg).not.toContain('posthog-node')
+    expect(client).not.toMatch(/from 'posthog/)
   })
 })

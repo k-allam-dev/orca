@@ -60,3 +60,17 @@ The issue names the output file `docs/autosfactory/outbound-traffic.md`; this fi
 
 - Packaged fork builds: the updater points at `stablyai/orca`. If we ever ship our own package we must repoint or disable it (a seam in `updater-setup.ts` and `updater-release-feed.ts`), or never package. Decision needed.
 - The installed upstream copy keeps updating itself from upstream; whether to stop that is a separate decision.
+
+## Step 3b (issue #33): telemetry code removed
+
+**Removed**
+- The PostHog transport (`src/main/telemetry/posthog-transport.ts`) and every `posthog-node` import.
+- The `posthog-node` entry in `package.json`, in `config/packaged-runtime-node-modules.cjs`, and (with its only dependents `@posthog/core` and `@posthog/types`) in `pnpm-lock.yaml`. The lockfile was edited by hand, not regenerated: run `pnpm install` once to confirm it is consistent.
+- The real behaviour of `src/main/telemetry/client.ts`: all its exports (`initTelemetry`, `track`, `isTelemetryEnabled`, `setOptIn`, `shutdownTelemetry`, ...) keep their names and types but are no-ops, so no call site changed. Nothing is collected, validated, stored or sent, and no settings are written.
+- Consent: `resolveConsent` always returns `disabled` (`orca_disabled`), whatever the settings or environment variables say.
+- UI: the Settings > Privacy "Share anonymous usage data" toggle is gone (the diagnostics section stays), and `TelemetryFirstLaunchSurface` renders nothing, so no first-launch notice appears.
+- Tests that exercised the PostHog pipeline (`client*.test.ts`, `client-test-harness.ts`, `usage/agent-token-usage-reporter.test.ts`, two telemetry tests in `usage/usage-provider-store-lifecycle.test.ts`). `telemetry-off-in-fork-builds.test.ts` now asserts the no-op truth.
+
+**Remains (not part of this ticket)**
+- Inert leftovers: the `telemetry` settings block and migration, the event schemas and validator, the burst cap, the cohort classifiers, the `telemetry:*` IPC handlers, the `ORCA_POSTHOG_WRITE_KEY` build define and release scripts, `FirstLaunchBanner.tsx`, and the privacy-search entries. None can send; they only keep call sites and merges simple.
+- Updater and release feed, plugin kill list, feedback, diagnostics upload, sharing, other hosts: separate decisions listed above.
