@@ -96,3 +96,31 @@ Use **design 2** (one hardened distro, a Linux user per ticket) as the base: 0.3
 2. Try Antigravity inside the environment (needs a Google sign-in by Kareem).
 3. Decide and test how the worktree gets in and the result gets out for review (#24).
 4. Automate the firewall rule and ticket-user creation (part of #22/#23).
+
+## Creating the sandbox distro
+
+The runner (`WslTicketSandbox`, `src/main/autosfactory/sandbox/`) expects one hardened distro named `autosfactory` (override with the `AUTOSFACTORY_WSL_DISTRO` environment variable). Created once by hand; the app never creates or deletes the distro, only ticket users inside it.
+
+1. Export a fresh Ubuntu: `wsl --export Ubuntu C:\wsl\ubuntu-base.tar` (about 45 s, 1.2 GB).
+2. Import it under the sandbox name: `wsl --import autosfactory C:\wsl\autosfactory C:\wsl\ubuntu-base.tar` (about 30 s).
+3. Inside it (`wsl -d autosfactory -u root`), install what ticket users need: `apt-get update && apt-get install -y nftables git`, plus Node 22 and `npm install -g @anthropic-ai/claude-code` for the agent. Sign in to the agent once per ticket user (the sign-in lives in that user's home).
+4. Write `/etc/wsl.conf` (ensureReady also writes the missing keys itself, but a restart is still needed once):
+
+```
+[boot]
+systemd=true
+
+[automount]
+enabled=false
+mountFsTab=false
+
+[interop]
+enabled=false
+appendWindowsPath=false
+```
+
+5. Apply it: `wsl --terminate autosfactory`.
+6. Base state to keep: no `sudo` group membership for ticket users (the sandbox refuses a user in sudo, admin, wheel or root), no ticket users (they are created per ticket as `t-<key>`, tagged `af-ticket=<KEY>` in the account comment), and no secrets in the base image. Do not make `autosfactory` the default distro.
+7. On startup the app calls `ensureReady()`: checks the distro exists, the wsl.conf keys, that `/mnt/c` is empty and no `WSLInterop` entry is registered, then replaces the root-owned nft table `inet fw` with a rule rejecting the real default gateway (read from `ip route show default`). Pass `installNftables: true` to let it `apt-get install nftables` when missing.
+
+Manual check on `af-test` (2026-10-28, `scripts/autosfactory-sandbox-smoke.ts af-test`): session create, isolation probes, stop and destroy all worked; see the issue comment for timings.
