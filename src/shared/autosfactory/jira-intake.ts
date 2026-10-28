@@ -1,7 +1,7 @@
 export const JIRA_INTAKE_INTERVAL_MS = 30 * 60 * 1000
 
-// Why: Kareem supplies the SNPL and TechOps board ids; the sync reports an error until they are set.
-export const JIRA_INTAKE_BOARD_IDS: readonly number[] = []
+// Why: Jira board ids Kareem gave (Jira boards are not projects); the sync reports an error when none are set.
+export const JIRA_INTAKE_BOARD_IDS: readonly number[] = [637, 1106, 805]
 
 // Why: the ticket's Jira project is arbitrary, so only the board and these statuses decide what is imported.
 export const JIRA_INTAKE_STATUS_NAMES = [
