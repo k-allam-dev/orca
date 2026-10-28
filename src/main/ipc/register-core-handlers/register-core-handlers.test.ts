@@ -407,6 +407,10 @@ vi.mock('../jira/register-handlers', () => ({
   registerJiraHandlers: registerJiraHandlersMock
 }))
 
+vi.mock('../../autosfactory/register-ticket-handlers', () => ({
+  registerTicketHandlers: vi.fn()
+}))
+
 vi.mock('../jira/issue-summary-generation', () => ({
   registerJiraIssueSummaryGenerationHandlers: registerJiraIssueSummaryGenerationHandlersMock
 }))

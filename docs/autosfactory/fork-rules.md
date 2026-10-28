@@ -12,14 +12,14 @@ Any edit we make to an Orca file will be competing with that rate. New files in 
 
 Everything new goes in folders we own. Names follow Orca's own rule (`AGENTS.md`): the concrete concept, never `helpers`, `utils`, or `common`.
 
-| Part | Folder |
-|---|---|
-| Main process: ticket state store, Jira sync job, permission policy files, review gate | `src/main/autosfactory/` |
-| Types shared by main and renderer: ticket states, agent status label, policy file shape | `src/shared/autosfactory/` |
-| Board UI: columns, cards, side panel | `src/renderer/src/components/autosfactory/` |
-| Preload bridge | `src/preload/api/autosfactory-bridge.ts` and `autosfactory-api.ts` (same pattern as the dashboard's `dashboard-bridge.ts`) |
-| Our docs and notes | `docs/autosfactory/` |
-| Tests | next to the file they test, as in Orca (`*.test.ts`) |
+| Part                                                                                    | Folder                                                                                                                     |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Main process: ticket state store, Jira sync job, permission policy files, review gate   | `src/main/autosfactory/`                                                                                                   |
+| Types shared by main and renderer: ticket states, agent status label, policy file shape | `src/shared/autosfactory/`                                                                                                 |
+| Board UI: columns, cards, side panel                                                    | `src/renderer/src/components/autosfactory/`                                                                                |
+| Preload bridge                                                                          | `src/preload/api/autosfactory-bridge.ts` and `autosfactory-api.ts` (same pattern as the dashboard's `dashboard-bridge.ts`) |
+| Our docs and notes                                                                      | `docs/autosfactory/`                                                                                                       |
+| Tests                                                                                   | next to the file they test, as in Orca (`*.test.ts`)                                                                       |
 
 ## 2. Touching Orca's own files: seams only
 
@@ -32,12 +32,16 @@ A **seam** is a place where an Orca file has to change so our code can plug in. 
 
 ### Seam ledger
 
-| Seam | Orca file | What we add | Added in |
-|---|---|---|---|
-| Register our IPC handlers | `src/main/ipc/register-core-handlers/register-core-handlers.ts` (next to `registerJiraHandlers()`, around line 197) | one import and one `registerTicketHandlers(...)` call | step 5 (#19) |
-| Expose our API to the renderer | `src/preload/index.ts` (next to `dashboard: dashboardApi`, around line 145) and `src/preload/api-types.ts` | one import and one entry in each (`autosfactory`) | step 5 (#19) |
-| Show the board in the app | a sidebar entry and page route in the renderer: **not found yet**, to be located when step 6 (#20) starts | to be recorded | not yet |
-| Safer default launch | the agent default arguments for Claude (`agentDefaultArgs` and the chat permission default) | to be recorded in step 8 (#22) | not yet |
+| Seam                           | Orca file                                                                                                           | What we add                                                                                                                                                                                           | Added in     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Register our IPC handlers      | `src/main/ipc/register-core-handlers/register-core-handlers.ts` (next to `registerJiraHandlers()`, around line 197) | one import and one `registerTicketHandlers(...)` call                                                                                                                                                 | step 5 (#19) |
+| Expose our API to the renderer | `src/preload/index.ts` (next to `dashboard: dashboardApi`, around line 145) and `src/preload/api-types.ts`          | one import and one entry in each (`autosfactory`)                                                                                                                                                     | step 5 (#19) |
+| Show the board in the app      | `src/renderer/src/app-shell/AppRootSurfaces.tsx` (next to `<StarNagAgentValueMomentObserver />`)                    | one import and one `<AutosfactorySync />` line; the workspace board (Orca's sidebar drawer, unchanged) uses our eight ticket states as its columns and a workspace linked to a Jira issue is a ticket | step 6 (#20) |
+| Telemetry removed (no-op internals) | `src/main/telemetry/client.ts`, `src/main/telemetry/consent.ts`, `src/renderer/src/components/TelemetryFirstLaunchSurface.tsx`, `src/renderer/src/components/settings/PrivacyPane.tsx` (rewritten, keep ours on conflict); `src/main/telemetry/posthog-transport.ts` and the telemetry client tests deleted; tests edited: `src/main/telemetry/consent.test.ts`, `src/renderer/src/components/settings/PrivacyPane.test.ts`, `src/main/usage/usage-provider-store-lifecycle.test.ts`, `src/main/usage/agent-token-usage-reporter.test.ts` (deleted); also `package.json`, `pnpm-lock.yaml`, `config/packaged-runtime-node-modules.cjs` (drop `posthog-node`) | exported names and types kept, bodies replaced with no-ops; Privacy toggle and first-launch notice render nothing; call sites untouched | step 3b (#33) |
+| Privacy section removed from Settings | `src/renderer/src/hooks/settings-navigation-remote-sections.ts` (the `privacy` entry plus two unused imports), `src/renderer/src/components/settings/settings-page-renderer.tsx` (the `renderPrivacySettingsSection` import and call), test `src/renderer/src/hooks/useSettingsNavigationMetadata.test.ts` (asserts no `privacy` section) | the whole "Privacy & Telemetry" nav entry and page section are gone, including the diagnostics-upload button | step 3b (#33) |
+| Unstarted tickets panel | `src/renderer/src/components/sidebar/WorkspaceKanbanDrawerView.tsx` (under `<WorkspaceKanbanDrawerHeader />`) | one import and one `<UnstartedTicketsPanel />` line; lists Jira tickets with no workspace yet, a project picker, Start, alerts, and the sync banner | step 7 (#21) |
+| Jira changed badge on workspace cards | `src/renderer/src/components/sidebar/WorkspaceKanbanCard.tsx` (above `<WorktreeCard`) | one import and one `<JiraChangedBadge worktree={worktree} />` line; shows a badge while the linked Jira issue has open alerts | step 7 (#21) |
+| Safer default launch           | the agent default arguments for Claude (`agentDefaultArgs` and the chat permission default)                         | to be recorded in step 8 (#22)                                                                                                                                                                        | not yet      |
 
 Line numbers drift fast at this commit rate. Search for the neighbouring call, not the number.
 
@@ -70,6 +74,7 @@ Line numbers drift fast at this commit rate. Search for the neighbouring call, n
 - **License:** Orca is MIT. Keep `LICENSE` and the copyright notice. A fork of a public repository stays public.
 
 ## 7. Open questions
-- **Telemetry (decided: off, see #32):** Orca collects anonymous usage data (see its privacy and telemetry docs). Decide whether to turn it off in our build, since it runs next to company ticket data. Not checked what it sends.
+
+- **Telemetry (decided: off, see #32):** Orca collects anonymous usage data (see its privacy and telemetry docs). Decide whether to turn it off in our build, since it runs next to company ticket data. Not checked what it sends. Update from step 3a: no code change or seam needed at step 3a; step 3b (#33) then removed the telemetry code, see the ledger. Telemetry only transmits in CI-built releases (build-time write key), so our source builds cannot send; the installed released copy is turned off with the user environment variables `DO_NOT_TRACK=1` and `ORCA_TELEMETRY_DISABLED=1` plus the Settings toggle. Details and the outbound-host list: `docs/autosfactory/telemetry-and-outbound-data.md`. Packaging our own build would re-enable Orca updater against `stablyai/orca`: do not package without handling that.
 - **Separate profile:** a released Orca is also installed on this PC. Whether the dev build shares its data folder with it is **not checked**. Orca has `pnpm dev:fresh` for a fresh profile.
-- **Where the board appears in the renderer** (see the ledger).
+- **Where the board appears in the renderer:** settled for now in step 6 (see the ledger); a proper sidebar entry is still open.
