@@ -24,6 +24,7 @@ function ticket(overrides: Partial<TicketRecord>): TicketRecord {
     agent: null,
     conversationId: null,
     worktreePath: null,
+    repoId: null,
     handoffNote: '',
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',

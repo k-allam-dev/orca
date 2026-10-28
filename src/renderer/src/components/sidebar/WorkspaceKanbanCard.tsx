@@ -6,6 +6,7 @@ import type { WorkspaceStatus, Worktree } from '../../../../shared/worktree/type
 import { getWorktreeHostIdentity } from '../../../../shared/worktree/host-qualified-identity'
 import WorktreeCard from './WorktreeCard'
 import { translate } from '@/i18n/i18n'
+import { JiraChangedBadge } from '../autosfactory/JiraChangedBadge'
 
 type WorkspaceKanbanCardProps = {
   worktree: Worktree
@@ -62,6 +63,7 @@ function WorkspaceKanbanCard({
           <Pin className="size-2.5" />
         </Badge>
       ) : null}
+      <JiraChangedBadge worktree={worktree} />
       <WorktreeCard
         worktree={worktree}
         repo={repo}

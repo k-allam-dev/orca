@@ -66,6 +66,7 @@ export class TicketStateStore {
       agent: null,
       conversationId: null,
       worktreePath: null,
+      repoId: null,
       handoffNote: '',
       createdAt: timestamp,
       updatedAt: timestamp

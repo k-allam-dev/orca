@@ -27,13 +27,14 @@ export type TicketRecord = {
   agent: TicketAgent | null
   conversationId: string | null
   worktreePath: string | null
+  repoId: string | null
   handoffNote: string
   createdAt: string
   updatedAt: string
 }
 
 export type TicketRecordPatch = Partial<
-  Pick<TicketRecord, 'agentStatus' | 'agent' | 'conversationId' | 'worktreePath' | 'handoffNote'>
+  Pick<TicketRecord, 'agentStatus' | 'agent' | 'conversationId' | 'worktreePath' | 'repoId' | 'handoffNote'>
 >
 
 // Why: the key becomes a file name, so it must never contain path separators or dots.
@@ -76,6 +77,7 @@ export function parseTicketRecord(raw: unknown): TicketRecord | null {
   const parsedAgent = agent === null ? null : isTicketAgent(agent) ? agent : undefined
   const parsedConversation = stringOrNull(conversationId)
   const parsedWorktree = stringOrNull(worktreePath)
+  const parsedRepoId = fields.repoId === undefined ? null : stringOrNull(fields.repoId)
   if (
     version !== TICKET_RECORD_VERSION ||
     !isTicketKey(key) ||
@@ -85,6 +87,7 @@ export function parseTicketRecord(raw: unknown): TicketRecord | null {
     parsedAgent === undefined ||
     parsedConversation === undefined ||
     parsedWorktree === undefined ||
+    parsedRepoId === undefined ||
     typeof handoffNote !== 'string' ||
     typeof createdAt !== 'string' ||
     typeof updatedAt !== 'string'
@@ -100,6 +103,7 @@ export function parseTicketRecord(raw: unknown): TicketRecord | null {
     agent: parsedAgent,
     conversationId: parsedConversation,
     worktreePath: parsedWorktree,
+    repoId: parsedRepoId,
     handoffNote,
     createdAt,
     updatedAt
