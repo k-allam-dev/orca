@@ -3,7 +3,7 @@ import { jiraRequest, type JiraClientForSite } from '../jira/authenticated-reque
 import { ISSUE_LIST_FIELDS, mapJiraIssue } from '../jira/jira-issue-mapping'
 import { getIssue } from '../jira/issues'
 import type { JiraIssue } from '../../shared/jira/jira-types'
-import { isRecord, pickBoardId, type JiraReadClient } from './jira-intake'
+import { isRecord, type JiraReadClient } from './jira-intake'
 
 const BOARD_PAGE_SIZE = 50
 const BOARD_PAGE_LIMIT = 20
@@ -27,13 +27,6 @@ async function agileGet(client: JiraClientForSite, path: string): Promise<AgileR
 export const orcaJiraReadClient: JiraReadClient = {
   isConnected: () => getStatus().connected,
   isTokenProblem: (error) => isAuthError(error) || Boolean(getStatus().credentialError),
-  findBoardId: async (name) => {
-    const result = await agileGet(
-      connectedClient(),
-      `/rest/agile/1.0/board?name=${encodeURIComponent(name)}&maxResults=50`
-    )
-    return pickBoardId(result.values, name)
-  },
   listBoardIssues: async (boardId, jql) => {
     const client = connectedClient()
     const issues: JiraIssue[] = []

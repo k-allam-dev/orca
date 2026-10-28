@@ -10,6 +10,7 @@ import type { TicketRecord } from '../../../../shared/autosfactory/ticket-state'
 import { bindTaskPageJiraItemSourceContext } from '../task-page-jira-item-source-context'
 import { getJiraIssueWorkspaceSeed, getTaskPageRepoSourceContext } from '../task-page-source-context'
 import { getRepoWorkspaceCreationTargetHint } from '@/lib/project-host-workspace-target'
+import { refreshJiraAlerts } from './jira-alert-store'
 import { selectUnstartedTickets, syncBannerFor } from './unstarted-tickets-model'
 
 const REFRESH_INTERVAL_MS = 10_000
@@ -79,6 +80,7 @@ export function UnstartedTicketsPanel(): React.JSX.Element | null {
   const dismiss = async (id: string): Promise<void> => {
     await window.api.autosfactory.dismissAlert({ id })
     await refresh()
+    await refreshJiraAlerts()
   }
 
   const start = async (ticket: TicketRecord): Promise<void> => {

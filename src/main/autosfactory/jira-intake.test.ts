@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ticketFlagsFromJiraAlerts } from '../../shared/autosfactory/ticket-flags'
 import { JIRA_INTAKE_JQL } from '../../shared/autosfactory/jira-intake'
-import { JiraIntake, pickBoardId, type JiraIntakeIssue, type JiraReadClient } from './jira-intake'
+import { JiraIntake, type JiraIntakeIssue, type JiraReadClient } from './jira-intake'
 import { TicketStateStore } from './ticket-state-store'
 
 type FakeJira = JiraReadClient & {
@@ -13,7 +13,6 @@ type FakeJira = JiraReadClient & {
   connected: boolean
   failure: Error | null
   calls: string[]
-  boards: Record<string, number>
 }
 
 function makeFakeJira(): FakeJira {
@@ -23,13 +22,8 @@ function makeFakeJira(): FakeJira {
     connected: true,
     failure: null,
     calls: [],
-    boards: { SNPL: 1, TechOps: 2 },
     isConnected: () => fake.connected,
     isTokenProblem: (error) => error instanceof Error && error.message === 'token expired',
-    findBoardId: async (name) => {
-      fake.calls.push(`board:${name}`)
-      return fake.boards[name] ?? null
-    },
     listBoardIssues: async (boardId, jql) => {
       fake.calls.push(`search:${boardId}:${jql}`)
       if (fake.failure) {
@@ -72,8 +66,8 @@ describe('JiraIntake', () => {
     await rm(directory, { recursive: true, force: true })
   })
 
-  async function openIntake(): Promise<JiraIntake> {
-    const intake = new JiraIntake(join(directory, 'jira-intake.json'), tickets, jira, 'JQL')
+  async function openIntake(boardIds: readonly number[] = [1, 2]): Promise<JiraIntake> {
+    const intake = new JiraIntake(join(directory, 'jira-intake.json'), tickets, jira, 'JQL', boardIds)
     await intake.load()
     return intake
   }
@@ -89,46 +83,17 @@ describe('JiraIntake', () => {
     expect(intake.getStatus().lastGoodSyncAt).not.toBeNull()
   })
 
-  it('resolves each board once and reuses the cached id', async () => {
-    const intake = await openIntake()
-    await intake.syncNow()
-    await intake.syncNow()
-    expect(jira.calls.filter((call) => call.startsWith('board:'))).toEqual([
-      'board:SNPL',
-      'board:TechOps'
-    ])
-  })
-
-  it('records a missing board as an error but still imports the other board', async () => {
-    jira.boards = { SNPL: 1 }
-    jira.issues = [issue()]
-    const intake = await openIntake()
+  it('records a clear error and does not crash when no board ids are configured', async () => {
+    const intake = await openIntake([])
     const result = await intake.syncNow()
-    expect(result.created).toEqual(['SNPL-1'])
-    expect(result.status.lastError).toContain('"TechOps" was not found')
-    expect(result.status.lastGoodSyncAt).toBeNull()
-  })
-
-  it('records an error when no board can be found', async () => {
-    jira.boards = {}
-    const intake = await openIntake()
-    const result = await intake.syncNow()
-    expect(result.status.lastError).toContain('not found')
+    expect(result.status.lastError).toBe('No Jira board ids configured.')
     expect(result.status.tokenProblem).toBe(false)
+    expect(jira.calls).toEqual([])
   })
 
   it('imports only the configured statuses', () => {
     expect(JIRA_INTAKE_JQL).toContain('"Backlog", "Selected for Development", "To Do", "In Progress"')
     expect(JIRA_INTAKE_JQL).not.toContain('project')
-  })
-
-  it('picks a board by exact name', () => {
-    const values = [
-      { id: 5, name: 'SNPL Archive' },
-      { id: 6, name: 'snpl' }
-    ]
-    expect(pickBoardId(values, 'SNPL')).toBe(6)
-    expect(pickBoardId(values, 'Other')).toBeNull()
   })
 
   it('skips issues whose key fails validation', async () => {

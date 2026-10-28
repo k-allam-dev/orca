@@ -3,7 +3,7 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { durableWriteTempPath, writeFileDurable } from '../durable-file-write'
 import {
-  JIRA_INTAKE_BOARD_NAMES,
+  JIRA_INTAKE_BOARD_IDS,
   JIRA_INTAKE_JQL,
   type JiraAlert,
   type JiraSyncResult,
@@ -23,7 +23,6 @@ export type JiraIntakeIssue = {
 export type JiraReadClient = {
   isConnected: () => boolean
   isTokenProblem: (error: unknown) => boolean
-  findBoardId: (name: string) => Promise<number | null>
   listBoardIssues: (boardId: number, jql: string) => Promise<JiraIntakeIssue[]>
   getDescription: (key: string) => Promise<string>
 }
@@ -46,7 +45,6 @@ type IntakeFile = {
   snapshots: Record<string, Snapshot>
   alerts: JiraAlert[]
   status: JiraSyncStatus
-  boardIds: Record<string, number>
 }
 
 const EMPTY_STATUS: JiraSyncStatus = {
@@ -60,26 +58,12 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-export function pickBoardId(values: unknown, name: string): number | null {
-  if (!Array.isArray(values)) {
-    return null
-  }
-  const match = values.find(
-    (board) =>
-      isRecord(board) &&
-      typeof board.name === 'string' &&
-      board.name.trim().toLowerCase() === name.toLowerCase() &&
-      typeof board.id === 'number'
-  )
-  return isRecord(match) && typeof match.id === 'number' ? match.id : null
-}
-
 function hashText(text: string): string {
   return createHash('sha256').update(text).digest('hex')
 }
 
 function emptyData(): IntakeFile {
-  return { version: 1, snapshots: {}, alerts: [], status: EMPTY_STATUS, boardIds: {} }
+  return { version: 1, snapshots: {}, alerts: [], status: EMPTY_STATUS }
 }
 
 export class JiraIntake {
@@ -91,7 +75,7 @@ export class JiraIntake {
     private readonly tickets: JiraIntakeTicketStore,
     private readonly jira: JiraReadClient,
     private readonly jql: string = JIRA_INTAKE_JQL,
-    private readonly boardNames: readonly string[] = JIRA_INTAKE_BOARD_NAMES,
+    private readonly boardIds: readonly number[] = JIRA_INTAKE_BOARD_IDS,
     private readonly now: () => Date = () => new Date()
   ) {}
 
@@ -111,11 +95,7 @@ export class JiraIntake {
         status:
           typeof fields.status === 'object' && fields.status !== null
             ? { ...EMPTY_STATUS, ...fields.status }
-            : EMPTY_STATUS,
-        boardIds:
-          typeof fields.boardIds === 'object' && fields.boardIds !== null
-            ? { ...fields.boardIds }
-            : {}
+            : EMPTY_STATUS
       }
     } catch {
       this.data = emptyData()
@@ -182,48 +162,29 @@ export class JiraIntake {
     }
   }
 
-  // Why: one missing or failing board must not hide the other board's tickets.
+  // Why: one failing board must not hide the other board's tickets.
   private async fetchBoards(): Promise<{ issues: JiraIntakeIssue[]; problems: string[] }> {
+    if (this.boardIds.length === 0) {
+      throw new Error('No Jira board ids configured.')
+    }
     const byKey = new Map<string, JiraIntakeIssue>()
     const problems: string[] = []
-    let authFailure: unknown = null
-    for (const name of this.boardNames) {
+    for (const boardId of this.boardIds) {
       try {
-        const boardId = await this.resolveBoardId(name)
-        if (boardId === null) {
-          problems.push(`Jira board "${name}" was not found.`)
-          continue
-        }
         for (const issue of await this.jira.listBoardIssues(boardId, this.jql)) {
           byKey.set(issue.key, issue)
         }
       } catch (error) {
         if (this.jira.isTokenProblem(error)) {
-          authFailure = error
-          break
+          throw error
         }
-        problems.push(`Board "${name}": ${error instanceof Error ? error.message : String(error)}`)
+        problems.push(`Board ${boardId}: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
-    if (authFailure) {
-      throw authFailure
-    }
-    if (problems.length === this.boardNames.length) {
+    if (problems.length === this.boardIds.length) {
       throw new Error(problems.join(' '))
     }
     return { issues: [...byKey.values()], problems }
-  }
-
-  private async resolveBoardId(name: string): Promise<number | null> {
-    const cached = this.data.boardIds[name]
-    if (cached !== undefined) {
-      return cached
-    }
-    const found = await this.jira.findBoardId(name)
-    if (found !== null) {
-      this.data = { ...this.data, boardIds: { ...this.data.boardIds, [name]: found } }
-    }
-    return found
   }
 
   private async apply(
