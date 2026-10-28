@@ -5,13 +5,26 @@ import type {
 } from '../../../shared/autosfactory/ticket-runner-contract'
 import {
   DEFAULT_SANDBOX_DISTRO,
+    SHARED_REPOS_DIR,
+  SHARED_REPOS_USER,
   TICKET_USER_MARKER,
-  TICKET_USER_PREFIX
+  TICKET_USER_PREFIX,
+  UPDATE_REPO_SCRIPT_PATH
 } from '../../../shared/autosfactory/sandbox-config'
-import { buildFirewallRuleset, parseDefaultGateway } from './firewall-rule'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { isAbsolute, join, win32 } from 'node:path'
+import {
+  buildFirewallRuleset,
+  parseDefaultGateway,
+  parseNameservers,
+  PRIVATE_IPV4_RANGES
+} from './firewall-rule'
+import { UPDATE_REPO_SCRIPT } from './update-repo-script'
+import { bundleWindowsRepo, type BundleRepo } from './windows-bundle'
 import {
   assertBranchName,
-  assertRepoUrl,
+  assertRepoKey,
   assertTicketKey,
   linuxUserForTicket
 } from './ticket-user'
@@ -26,6 +39,8 @@ import type { RunWsl, WslOptions, WslResult } from './wsl-exec'
 const BASH = '/bin/bash'
 const NFT = '/usr/sbin/nft'
 const WSL_CONF_PATH = '/etc/wsl.conf'
+const RESOLV_CONF_PATH = '/etc/resolv.conf'
+const RESOLVED_CONF_PATH = '/run/systemd/resolve/resolv.conf'
 const LONG_TIMEOUT_MS = 600_000
 const ELEVATED_GROUPS = ['sudo', 'admin', 'wheel', 'root']
 
@@ -34,6 +49,8 @@ export type WslTicketSandboxOptions = {
   distro?: string
   /** Allows ensureReady to apt-get install nftables when it is missing. */
   installNftables?: boolean
+  /** Writes a git bundle of the Windows project's latest base branch to a file. */
+  bundleRepo?: BundleRepo
 }
 
 type PasswdEntry = { name: string; comment: string; home: string }
@@ -45,18 +62,47 @@ if command -v cmd.exe >/dev/null 2>&1; then echo "cmd.exe is on PATH"; exit 23; 
 exit 0
 `
 
+// args: <shared bare repo> <base branch> <work branch> <ticket key>
 const CLONE_SCRIPT = `
 set -eu
 repo=$1
-branch=$2
-key=$3
+base=$2
+work=$3
+key=$4
 dir="$HOME/work/$key"
 mkdir -p "$HOME/work"
 if [ ! -d "$dir/.git" ]; then
-  git clone -- "$repo" "$dir"
+  rm -rf "$dir"
+  git clone --local --no-hardlinks --no-checkout -q -- "$repo" "$dir" || { rm -rf "$dir"; exit 1; }
+  cd "$dir"
+  git checkout -q -b "$work" "origin/$base"
+else
+  cd "$dir"
+  git checkout -q "$work" 2>/dev/null || git checkout -q -b "$work" "origin/$base"
 fi
-cd "$dir"
-git checkout "$branch" 2>/dev/null || git checkout -b "$branch"
+`
+
+// args: <repos dir> <repos user> <update script path>; idempotent, run as root.
+const PREPARE_SHARED_REPOS_SCRIPT = `
+set -eu
+dir=$1
+owner=$2
+script=$3
+if ! /usr/bin/getent passwd "$owner" >/dev/null; then
+  /usr/sbin/useradd -m -s /bin/bash "$owner"
+fi
+/usr/bin/chmod 700 "$(/usr/bin/getent passwd "$owner" | /usr/bin/cut -d: -f6)"
+/usr/bin/mkdir -p "$dir"
+/usr/bin/chown "$owner:$owner" "$dir"
+/usr/bin/chmod 755 "$dir"
+if ! /usr/bin/git config --system --get-all safe.directory | /usr/bin/grep -qxF "$dir/*"; then
+  /usr/bin/git config --system --add safe.directory "$dir/*"
+fi
+/usr/bin/mkdir -p "$(/usr/bin/dirname "$script")"
+/usr/bin/cat > "$script" <<'AF_UPDATE_SCRIPT_END'
+${UPDATE_REPO_SCRIPT}AF_UPDATE_SCRIPT_END
+/usr/bin/chown root:root "$script"
+/usr/bin/chmod 755 "$script"
 `
 
 function parsePasswdLine(line: string): PasswdEntry | null {
@@ -80,11 +126,13 @@ export class WslTicketSandbox implements TicketSandbox {
   private readonly runWsl: RunWsl
   private readonly distro: string
   private readonly installNftables: boolean
+  private readonly bundleRepo: BundleRepo
 
   constructor(options: WslTicketSandboxOptions) {
     this.runWsl = options.runWsl
     this.distro = options.distro ?? DEFAULT_SANDBOX_DISTRO
     this.installNftables = options.installNftables ?? false
+    this.bundleRepo = options.bundleRepo ?? bundleWindowsRepo
   }
 
   async ensureReady(): Promise<void> {
@@ -92,12 +140,41 @@ export class WslTicketSandbox implements TicketSandbox {
     await this.assertWslConf()
     await this.assertRuntimeIsolation()
     await this.applyFirewall()
+    await this.prepareSharedRepos()
+  }
+
+  async updateSharedRepo(repoKey: string, windowsRepoPath: string): Promise<void> {
+    assertRepoKey(repoKey)
+    if (!windowsRepoPath.trim() || !(isAbsolute(windowsRepoPath) || win32.isAbsolute(windowsRepoPath))) {
+      throw new Error(`The project path must be absolute: ${JSON.stringify(windowsRepoPath)}`)
+    }
+    const tempDir = await mkdtemp(join(tmpdir(), 'autosfactory-bundle-'))
+    try {
+      const bundleFile = join(tempDir, `${repoKey}.bundle`)
+      await this.bundleRepo(windowsRepoPath, bundleFile)
+      await this.mustRun(
+        this.runWsl(
+          [
+            ...this.base(SHARED_REPOS_USER),
+            BASH,
+            UPDATE_REPO_SCRIPT_PATH,
+            SHARED_REPOS_DIR,
+            repoKey
+          ],
+          { inputFile: bundleFile, timeoutMs: LONG_TIMEOUT_MS }
+        ),
+        `update shared repo ${repoKey}`
+      )
+    } finally {
+      await rm(tempDir, { recursive: true, force: true })
+    }
   }
 
   async createSession(ticketKey: string, source: SandboxSource): Promise<SandboxSession> {
     assertTicketKey(ticketKey)
-    assertRepoUrl(source.repoUrl)
-    assertBranchName(source.branch)
+    assertRepoKey(source.repoKey)
+    assertBranchName(source.baseBranch)
+    assertBranchName(source.workBranch)
     const user = linuxUserForTicket(ticketKey)
     const marker = `${TICKET_USER_MARKER}${ticketKey}`
 
@@ -118,10 +195,20 @@ export class WslTicketSandbox implements TicketSandbox {
     await this.rootMust(['/usr/bin/chmod', '700', entry.home], `restrict ${entry.home}`)
     await this.assertNotElevated(user)
 
+    const repoPath = `${SHARED_REPOS_DIR}/${source.repoKey}.git`
+    const loaded = await this.root(['/usr/bin/test', '-d', repoPath])
+    if (loaded.code !== 0) {
+      throw new Error(
+        `Shared repo ${source.repoKey} is not loaded in "${this.distro}"; call updateSharedRepo first.`
+      )
+    }
     await this.mustRun(
-      this.bashScript(user, CLONE_SCRIPT, [source.repoUrl, source.branch, ticketKey], {
-        timeoutMs: LONG_TIMEOUT_MS
-      }),
+      this.bashScript(
+        user,
+        CLONE_SCRIPT,
+        [repoPath, source.baseBranch, source.workBranch, ticketKey],
+        { timeoutMs: LONG_TIMEOUT_MS }
+      ),
       `clone into ${user}`
     )
     return sessionFor(ticketKey, entry)
@@ -218,16 +305,37 @@ export class WslTicketSandbox implements TicketSandbox {
       'read default gateway'
     )
     const gateway = parseDefaultGateway(route.stdout)
+    const nameservers = await this.readNameservers()
     await this.rootMust([NFT, '-f', '-'], 'apply the firewall rule', {
-      input: buildFirewallRuleset(gateway)
+      input: buildFirewallRuleset(gateway, nameservers)
     })
     const listed = await this.rootMust(
       [NFT, 'list', 'chain', 'inet', 'fw', 'out'],
       'verify the firewall rule'
     )
-    if (!listed.stdout.includes(gateway)) {
+    // Why: nft merges the gateway into a covering private range when listing, so check the ranges.
+    if (!listed.stdout.includes('reject') || !listed.stdout.includes(PRIVATE_IPV4_RANGES[2])) {
       throw new Error(`The firewall rule for ${gateway} is not active in "${this.distro}".`)
     }
+  }
+
+  private async readNameservers(): Promise<string[]> {
+    const primary = await this.rootMust(['/usr/bin/cat', RESOLV_CONF_PATH], 'read resolv.conf')
+    // Why: with a systemd-resolved stub the real upstream resolvers are listed only here.
+    const upstream = await this.root(['/usr/bin/cat', RESOLVED_CONF_PATH])
+    return parseNameservers(`${primary.stdout}
+${upstream.code === 0 ? upstream.stdout : ''}`)
+  }
+
+  private async prepareSharedRepos(): Promise<void> {
+    await this.mustRun(
+      this.bashScript('root', PREPARE_SHARED_REPOS_SCRIPT, [
+        SHARED_REPOS_DIR,
+        SHARED_REPOS_USER,
+        UPDATE_REPO_SCRIPT_PATH
+      ]),
+      'prepare the shared repos folder'
+    )
   }
 
   private async assertNotElevated(user: string): Promise<void> {

@@ -11,6 +11,7 @@ function notWired(): Promise<never> {
 
 export const notWiredSandbox: TicketSandbox = {
   ensureReady: notWired,
+  updateSharedRepo: notWired,
   createSession: notWired,
   stopSession: notWired,
   destroySession: notWired,

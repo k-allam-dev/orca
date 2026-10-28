@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
+import { createReadStream } from 'node:fs'
 
 export type WslResult = { code: number; stdout: string; stderr: string }
-export type WslOptions = { input?: string; timeoutMs?: number }
+export type WslOptions = { input?: string; inputFile?: string; timeoutMs?: number }
 export type RunWsl = (args: string[], opts?: WslOptions) => Promise<WslResult>
 
 const DEFAULT_TIMEOUT_MS = 120_000
@@ -33,5 +34,11 @@ export const runWslExe: RunWsl = (args, opts = {}) =>
       }
     )
     child.stdin?.on('error', () => {})
-    child.stdin?.end(opts.input ?? '')
+    if (opts.inputFile && child.stdin) {
+      const source = createReadStream(opts.inputFile)
+      source.on('error', reject)
+      source.pipe(child.stdin)
+    } else {
+      child.stdin?.end(opts.input ?? '')
+    }
   })

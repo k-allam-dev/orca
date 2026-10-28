@@ -54,11 +54,16 @@ function makeStore(keys: string[]): RunnerTicketStore & { records: Map<string, T
   }
 }
 
-function makeHarness(keys: string[], options: { readyError?: Error } = {}) {
+function makeHarness(
+  keys: string[],
+  options: { readyError?: Error; updateError?: Error } = {}
+) {
   const store = makeStore(keys)
   const exits = new Map<string, (result: ExitResult) => void>()
   const calls: string[] = []
   const sources: SandboxSource[] = []
+  const updates: string[][] = []
+  const failure: { updateError?: Error } = { updateError: options.updateError }
   let ensureCalls = 0
   const sandbox: TicketSandbox = {
     ensureReady: async () => {
@@ -66,6 +71,12 @@ function makeHarness(keys: string[], options: { readyError?: Error } = {}) {
       if (options.readyError) {
         throw options.readyError
       }
+    },
+    updateSharedRepo: async (repoKey, windowsRepoPath) => {
+      if (failure.updateError) {
+        throw failure.updateError
+      }
+      updates.push([repoKey, windowsRepoPath])
     },
     createSession: async (ticketKey, source): Promise<SandboxSession> => {
       sources.push(source)
@@ -84,7 +95,7 @@ function makeHarness(keys: string[], options: { readyError?: Error } = {}) {
   const runner = new TicketRunner({
     store,
     sandbox,
-    resolveSource: async () => ({ repoUrl: 'https://example.test/repo.git', branch: 'main' }),
+    resolveSource: async () => ({ repoKey: 'orca', windowsRepoPath: 'C:\work\orca' }),
     launcher: {
       start: async (_session, ticketKey): Promise<AgentHandle> => {
         counter += 1
@@ -101,7 +112,7 @@ function makeHarness(keys: string[], options: { readyError?: Error } = {}) {
     }
   })
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
-  return { store, runner, exits, calls, sources, settle, ensureCount: () => ensureCalls }
+  return { store, runner, exits, calls, sources, updates, failure, settle, ensureCount: () => ensureCalls }
 }
 
 const SIX = ['T-1', 'T-2', 'T-3', 'T-4', 'T-5', 'T-6']
@@ -193,15 +204,43 @@ describe('TicketRunner', () => {
     expect(h.sources).toHaveLength(0)
   })
 
-  it('checks the sandbox once and gives each session the ticket branch', async () => {
+  it('checks the sandbox on every start, refreshes the shared repo and branches from develop', async () => {
     const h = makeHarness(['SNPL-12', 'SNPL-13'])
     await h.runner.start('SNPL-12')
     await h.runner.start('SNPL-13')
-    expect(h.ensureCount()).toBe(1)
-    expect(h.sources.map((source) => source.branch)).toEqual([
-      'autosfactory/SNPL-12',
-      'autosfactory/SNPL-13'
+    expect(h.ensureCount()).toBe(2)
+    expect(h.updates).toEqual([
+      ['orca', 'C:\work\orca'],
+      ['orca', 'C:\work\orca']
     ])
+    expect(h.sources).toEqual([
+      { repoKey: 'orca', baseBranch: 'develop', workBranch: 'autosfactory/SNPL-12' },
+      { repoKey: 'orca', baseBranch: 'develop', workBranch: 'autosfactory/SNPL-13' }
+    ])
+  })
+
+  it('stores the launch error on the ticket and clears it after a good start', async () => {
+    const h = makeHarness(['T-1'], { updateError: new Error('git fetch failed') })
+    await expect(h.runner.start('T-1')).rejects.toThrow(/git fetch failed/)
+    expect(h.store.get('T-1')?.lastError).toMatch(/git fetch failed/)
+    expect(h.store.get('T-1')?.agentStatus).toBe('idle')
+
+    const ok = makeHarness(['T-1'])
+    await ok.store.update('T-1', { lastError: 'old problem' })
+    await ok.runner.start('T-1')
+    expect(ok.store.get('T-1')?.lastError).toBeNull()
+  })
+
+  it('stores the launch error of a queued ticket that fails to start', async () => {
+    const h = makeHarness(SIX)
+    for (const key of SIX) {
+      await h.runner.start(key)
+    }
+    h.failure.updateError = new Error('disk full')
+    h.exits.get('T-1')?.({ code: 0, interrupted: false })
+    await h.settle()
+    expect(h.store.get('T-6')).toMatchObject({ agentStatus: 'failed', lastError: 'disk full' })
+    expect(h.runner.getStatus().queued).toEqual([])
   })
 
   it('removes a queued ticket from the queue on pause', async () => {

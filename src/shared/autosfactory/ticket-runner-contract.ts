@@ -9,14 +9,20 @@ export type SandboxSession = {
 }
 
 export type SandboxSource = {
-  repoUrl: string
-  branch: string
+  /** Key of a repo in the shared repos folder of the distro (see updateSharedRepo). */
+  repoKey: string
+  /** The ticket branches from origin/<baseBranch> of the shared repo. */
+  baseBranch: string
+  /** New branch created in the ticket's own copy. */
+  workBranch: string
 }
 
 export type TicketSandbox = {
   /** Distro exists, Windows drive mounting and the Windows command bridge are off, and the host firewall rule is applied. Throws with a readable reason when it cannot be made safe. */
   ensureReady(): Promise<void>
-  /** Creates the ticket's Linux user and clones the source into its home. Idempotent for an existing session of the same ticket. */
+  /** Brings the latest base branch of the Windows project into the distro's read-only shared bare repo `<repoKey>.git`. The git login stays on Windows; only a bundle crosses over. */
+  updateSharedRepo(repoKey: string, windowsRepoPath: string): Promise<void>
+  /** Creates the ticket's Linux user and makes a local clone of the shared repo in its home, on a new work branch. Idempotent for an existing session of the same ticket. */
   createSession(ticketKey: string, source: SandboxSource): Promise<SandboxSession>
   /** Kills the ticket user's processes and keeps its files (pause). */
   stopSession(ticketKey: string): Promise<void>

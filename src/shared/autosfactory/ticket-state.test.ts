@@ -24,3 +24,13 @@ describe('parseTicketRecord repoId', () => {
     expect(parseTicketRecord({ ...saved, repoId: 5 })).toBeNull()
   })
 })
+
+describe('parseTicketRecord lastError', () => {
+  it('reads a record saved before lastError existed as null', () => {
+    expect(parseTicketRecord(saved)?.lastError).toBeNull()
+  })
+  it('keeps a string lastError and rejects other types', () => {
+    expect(parseTicketRecord({ ...saved, lastError: 'boom' })?.lastError).toBe('boom')
+    expect(parseTicketRecord({ ...saved, lastError: 5 })).toBeNull()
+  })
+})
