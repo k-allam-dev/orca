@@ -8,6 +8,9 @@ import {
   type TicketRecord,
   type TicketRecordPatch
 } from '../../shared/autosfactory/ticket-state'
+import { JIRA_INTAKE_INTERVAL_MS, type JiraSyncResult } from '../../shared/autosfactory/jira-intake'
+import { JiraIntake } from './jira-intake'
+import { orcaJiraReadClient } from './jira-read-client'
 import { TicketStateStore } from './ticket-state-store'
 
 function parsePatch(value: unknown): TicketRecordPatch {
@@ -81,5 +84,35 @@ export function registerTicketHandlers(userDataPath: string): void {
       throw new Error('A valid ticket key is required.')
     }
     await store.remove(args.key)
+  })
+
+  const intake = new JiraIntake(
+    join(userDataPath, 'autosfactory', 'jira-intake.json'),
+    store,
+    orcaJiraReadClient
+  )
+  const intakeReady = ready.then(() => intake.load())
+  const syncIntake = async (): Promise<JiraSyncResult> => {
+    await intakeReady
+    return intake.syncNow()
+  }
+  void syncIntake()
+  setInterval(() => void syncIntake(), JIRA_INTAKE_INTERVAL_MS).unref()
+
+  ipcMain.handle('autosfactory:jira:sync-now', syncIntake)
+  ipcMain.handle('autosfactory:jira:status', async () => {
+    await intakeReady
+    return intake.getStatus()
+  })
+  ipcMain.handle('autosfactory:jira:alerts', async () => {
+    await intakeReady
+    return intake.listAlerts()
+  })
+  ipcMain.handle('autosfactory:jira:dismiss-alert', async (_event, args: { id?: unknown }) => {
+    await intakeReady
+    if (typeof args?.id !== 'string') {
+      throw new Error('An alert id is required.')
+    }
+    await intake.dismissAlert(args.id)
   })
 }

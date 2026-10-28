@@ -6,5 +6,9 @@ export const autosfactoryApi: AutosfactoryApi = {
   createTicket: (args) => ipcRenderer.invoke('autosfactory:tickets:create', args),
   moveTicket: (args) => ipcRenderer.invoke('autosfactory:tickets:move', args),
   updateTicket: (args) => ipcRenderer.invoke('autosfactory:tickets:update', args),
-  removeTicket: (args) => ipcRenderer.invoke('autosfactory:tickets:remove', args)
+  removeTicket: (args) => ipcRenderer.invoke('autosfactory:tickets:remove', args),
+  syncNow: () => ipcRenderer.invoke('autosfactory:jira:sync-now'),
+  getSyncStatus: () => ipcRenderer.invoke('autosfactory:jira:status'),
+  listAlerts: () => ipcRenderer.invoke('autosfactory:jira:alerts'),
+  dismissAlert: (args) => ipcRenderer.invoke('autosfactory:jira:dismiss-alert', args)
 }
