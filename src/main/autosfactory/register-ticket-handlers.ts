@@ -11,6 +11,8 @@ import {
 import { JIRA_INTAKE_INTERVAL_MS, type JiraSyncResult } from '../../shared/autosfactory/jira-intake'
 import { JiraIntake } from './jira-intake'
 import { orcaJiraReadClient } from './jira-read-client'
+import { TicketRunner } from './runner/ticket-runner'
+import { notWiredLauncher, notWiredResolveSource, notWiredSandbox } from './runner/not-wired'
 import { TicketStateStore } from './ticket-state-store'
 
 function parsePatch(value: unknown): TicketRecordPatch {
@@ -87,6 +89,38 @@ export function registerTicketHandlers(userDataPath: string): void {
       throw new Error('A valid ticket key is required.')
     }
     await store.remove(args.key)
+  })
+
+  const runner = new TicketRunner({
+    store,
+    sandbox: notWiredSandbox,
+    launcher: notWiredLauncher,
+    resolveSource: notWiredResolveSource
+  })
+  const requireKey = (args: { key?: unknown } | undefined): string => {
+    if (!isTicketKey(args?.key)) {
+      throw new Error('A valid ticket key is required.')
+    }
+    return args.key
+  }
+  ipcMain.handle('autosfactory:runner:start', async (_event, args: { key?: unknown }) => {
+    await ready
+    return runner.start(requireKey(args))
+  })
+  ipcMain.handle('autosfactory:runner:pause', async (_event, args: { key?: unknown }) => {
+    await ready
+    await runner.pause(requireKey(args))
+  })
+  ipcMain.handle(
+    'autosfactory:runner:cancel',
+    async (_event, args: { key?: unknown; confirmed?: unknown }) => {
+      await ready
+      await runner.cancel(requireKey(args), { confirmed: args?.confirmed === true })
+    }
+  )
+  ipcMain.handle('autosfactory:runner:status', async () => {
+    await ready
+    return runner.getStatus()
   })
 
   const intake = new JiraIntake(
