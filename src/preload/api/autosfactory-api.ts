@@ -17,6 +17,7 @@ export type AutosfactoryApi = {
   removeTicket: (args: { key: string }) => Promise<void>
   syncNow: () => Promise<JiraSyncResult>
   getSyncStatus: () => Promise<JiraSyncStatus>
+  listJiraStatuses: () => Promise<Record<string, string>>
   listAlerts: () => Promise<JiraAlert[]>
   dismissAlert: (args: { id: string }) => Promise<void>
 }

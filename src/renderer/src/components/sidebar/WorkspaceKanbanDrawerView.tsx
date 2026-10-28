@@ -4,6 +4,7 @@ import WorkspaceKanbanDrawerHeader from './WorkspaceKanbanDrawerHeader'
 import WorkspaceKanbanLaneGrid from './WorkspaceKanbanLaneGrid'
 import WorkspaceKanbanPinDropTarget from './WorkspaceKanbanPinDropTarget'
 import WorkspaceKanbanSheet from './WorkspaceKanbanSheet'
+import { UnstartedTicketsPanel } from '../autosfactory/UnstartedTicketsPanel'
 
 type WorkspaceKanbanDrawerViewProps = {
   areaSelectionOverlayRef: React.RefObject<HTMLDivElement | null>
@@ -41,6 +42,7 @@ export default function WorkspaceKanbanDrawerView(
       statusBarVisible={props.statusBarVisible}
     >
       <WorkspaceKanbanDrawerHeader {...props.headerProps} />
+      <UnstartedTicketsPanel />
       <div
         ref={props.boardRef}
         className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-3"

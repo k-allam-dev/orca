@@ -30,6 +30,9 @@ function parsePatch(value: unknown): TicketRecordPatch {
   if (fields.worktreePath === null || typeof fields.worktreePath === 'string') {
     patch.worktreePath = fields.worktreePath
   }
+  if (fields.repoId === null || (typeof fields.repoId === 'string' && fields.repoId.length > 0)) {
+    patch.repoId = fields.repoId
+  }
   if (typeof fields.handoffNote === 'string') {
     patch.handoffNote = fields.handoffNote
   }
@@ -103,6 +106,10 @@ export function registerTicketHandlers(userDataPath: string): void {
   ipcMain.handle('autosfactory:jira:status', async () => {
     await intakeReady
     return intake.getStatus()
+  })
+  ipcMain.handle('autosfactory:jira:statuses', async () => {
+    await intakeReady
+    return intake.listJiraStatuses()
   })
   ipcMain.handle('autosfactory:jira:alerts', async () => {
     await intakeReady
