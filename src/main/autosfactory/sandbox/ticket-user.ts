@@ -5,7 +5,7 @@ const TICKET_KEY_PATTERN = /^[A-Z][A-Z0-9]+-\d+$/
 const MAX_TICKET_KEY_LENGTH = 64
 const MAX_LINUX_USER_LENGTH = 32
 const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/
-const REPO_URL_PATTERN = /^[A-Za-z0-9/][A-Za-z0-9._~:/@%+=,-]*$/
+const REPO_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
 export function assertTicketKey(ticketKey: string): void {
   if (ticketKey.length > MAX_TICKET_KEY_LENGTH || !TICKET_KEY_PATTERN.test(ticketKey)) {
@@ -26,9 +26,15 @@ export function assertBranchName(branch: string): void {
   }
 }
 
-export function assertRepoUrl(repoUrl: string): void {
-  if (!REPO_URL_PATTERN.test(repoUrl) || repoUrl.includes('..')) {
-    throw new Error(`Invalid repository URL: ${JSON.stringify(repoUrl)}`)
+export function assertRepoKey(repoKey: string): void {
+  const bad =
+    !REPO_KEY_PATTERN.test(repoKey) ||
+    repoKey.includes('..') ||
+    repoKey.endsWith('.') ||
+    repoKey.endsWith('.git') ||
+    repoKey.endsWith('.lock')
+  if (bad) {
+    throw new Error(`Invalid repository key: ${JSON.stringify(repoKey)}`)
   }
 }
 

@@ -1,6 +1,8 @@
+import { existsSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
-import { buildFirewallRuleset, parseDefaultGateway } from './firewall-rule'
-import { linuxUserForTicket } from './ticket-user'
+import { buildFirewallRuleset, parseDefaultGateway, parseNameservers } from './firewall-rule'
+import { assertRepoKey, linuxUserForTicket } from './ticket-user'
 import { parseWslConf, missingWslConfSettings } from './wsl-conf'
 import { decodeWslOutput } from './wsl-exec'
 import type { RunWsl, WslOptions, WslResult } from './wsl-exec'
@@ -20,6 +22,7 @@ type FakeWorld = {
   runtimeCheckCode: number
   calls: Call[]
   nftInput: string[]
+  loadedRepos: string[]
 }
 
 function ok(stdout = ''): WslResult {
@@ -38,7 +41,8 @@ function makeWorld(): FakeWorld {
     route: 'default via 172.30.192.1 dev eth0 proto kernel\n',
     runtimeCheckCode: 0,
     calls: [],
-    nftInput: []
+    nftInput: [],
+    loadedRepos: ['/srv/autosfactory/repos/orca.git']
   }
 }
 
@@ -53,6 +57,12 @@ function makeFake(world: FakeWorld): RunWsl {
     const [bin, ...rest] = cmd
     switch (bin) {
       case '/usr/bin/cat':
+        if (rest[0] === '/etc/resolv.conf') {
+          return ok('# generated\nnameserver 10.255.255.254\n')
+        }
+        if (rest[0] !== '/etc/wsl.conf') {
+          return fail()
+        }
         return world.wslConf ? ok(world.wslConf) : fail()
       case '/usr/bin/tee':
         world.wslConf = opts?.input ?? ''
@@ -67,6 +77,9 @@ function makeFake(world: FakeWorld): RunWsl {
       case '/usr/bin/test':
         if (rest[0] === '-x') {
           return world.hasNft ? ok() : fail()
+        }
+        if (rest[0] === '-d') {
+          return world.loadedRepos.includes(rest[1]) ? ok() : fail()
         }
         return fail()
       case '/usr/bin/apt-get':
@@ -118,7 +131,7 @@ function withGetentLookup(world: FakeWorld): RunWsl {
   }
 }
 
-const SOURCE = { repoUrl: 'https://github.com/example/repo.git', branch: 'feature/snpl-12' }
+const SOURCE = { repoKey: 'orca', baseBranch: 'develop', workBranch: 'autosfactory/SNPL-12' }
 
 describe('ticket user derivation', () => {
   it('derives lowercase names and keeps long ones within 32 chars and unique', () => {
@@ -140,8 +153,33 @@ describe('firewall and conf helpers', () => {
   it('reads the gateway and builds an idempotent ruleset from it', () => {
     const gateway = parseDefaultGateway('default via 10.1.2.3 dev eth0\n')
     const rules = buildFirewallRuleset(gateway)
-    expect(rules).toContain('ip daddr 10.1.2.3 reject')
+    expect(rules).toContain('10.1.2.3')
+    for (const range of ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '100.64.0.0/10']) {
+      expect(rules).toContain(range)
+    }
     expect(rules.indexOf('add table inet fw')).toBeLessThan(rules.indexOf('delete table inet fw'))
+  })
+
+  it('accepts DNS to the nameservers before rejecting the private ranges', () => {
+    const rules = buildFirewallRuleset('172.30.192.1', ['10.255.255.254', 'fd00::1'])
+    expect(rules).toContain('ip daddr { 10.255.255.254 } meta l4proto { udp, tcp } th dport 53 accept')
+    expect(rules).toContain('ip6 daddr { fd00::1 }')
+    expect(rules.indexOf('th dport 53 accept')).toBeLessThan(rules.indexOf('reject'))
+    expect(rules.indexOf('oifname "lo" accept')).toBeLessThan(rules.indexOf('th dport 53'))
+    expect(() => buildFirewallRuleset('172.30.192.1', ['1.1.1.1; flush ruleset'])).toThrow()
+  })
+
+  it('reads nameservers from resolv.conf text', () => {
+    const text = '# x\nnameserver 10.255.255.254\nnameserver fe80::1%eth0\nnameserver nope\nnameserver 10.255.255.254\n'
+    expect(parseNameservers(text)).toEqual(['10.255.255.254', 'fe80::1'])
+  })
+
+  it('validates repo keys strictly', () => {
+    expect(() => assertRepoKey('orca')).not.toThrow()
+    expect(() => assertRepoKey('my-repo_2.x')).not.toThrow()
+    for (const key of ['', '../x', 'a/b', 'a b', '-rf', '.hidden', 'a..b', 'x.git', 'x.lock', 'a;id', 'a\n', 'a\\b']) {
+      expect(() => assertRepoKey(key), key).toThrow()
+    }
   })
 
   it('refuses a missing or odd gateway', () => {
@@ -169,7 +207,22 @@ describe('WslTicketSandbox.ensureReady', () => {
     await sandbox.ensureReady()
     expect(world.nftInput).toHaveLength(2)
     expect(world.nftInput[0]).toContain('172.30.192.1')
+    expect(world.nftInput[0]).toContain('10.255.255.254')
     expect(world.nftInput[0]).toBe(world.nftInput[1])
+  })
+
+  it('prepares the shared repos folder, safe.directory and the update script as root', async () => {
+    const world = makeWorld()
+    await new WslTicketSandbox({ runWsl: makeFake(world) }).ensureReady()
+    const prepare = world.calls.filter((call) => call.user === 'root' && call.cmd[0] === '/bin/bash').at(-1)
+    expect(prepare?.cmd.slice(-3)).toEqual([
+      '/srv/autosfactory/repos',
+      'afrepos',
+      '/usr/local/lib/autosfactory/update-repo.sh'
+    ])
+    expect(prepare?.opts?.input).toContain('safe.directory')
+    expect(prepare?.opts?.input).toContain('git init --bare')
+    expect(prepare?.opts?.input).toContain('chown root:root')
   })
 
   it('fails when the distro is missing', async () => {
@@ -229,11 +282,13 @@ describe('WslTicketSandbox sessions', () => {
       '/bin/bash',
       '-s',
       '--',
-      SOURCE.repoUrl,
-      SOURCE.branch,
+      '/srv/autosfactory/repos/orca.git',
+      'develop',
+      'autosfactory/SNPL-12',
       'SNPL-12'
     ])
-    expect(clone?.opts?.input).not.toContain(SOURCE.repoUrl)
+    expect(clone?.opts?.input).not.toContain(SOURCE.workBranch)
+    expect(clone?.opts?.input).toContain('--local')
   })
 
   it('is idempotent for an existing session', async () => {
@@ -258,10 +313,18 @@ describe('WslTicketSandbox sessions', () => {
     const world = makeWorld()
     const sandbox = new WslTicketSandbox({ runWsl: withGetentLookup(world) })
     await expect(sandbox.createSession('../x-1', SOURCE)).rejects.toThrow()
-    await expect(sandbox.createSession('SNPL-1', { ...SOURCE, repoUrl: '--upload-pack=x' })).rejects.toThrow()
-    await expect(sandbox.createSession('SNPL-1', { ...SOURCE, branch: 'a b' })).rejects.toThrow()
-    await expect(sandbox.createSession('SNPL-1', { ...SOURCE, branch: '../x' })).rejects.toThrow()
+    await expect(sandbox.createSession('SNPL-1', { ...SOURCE, repoKey: '../orca' })).rejects.toThrow()
+    await expect(sandbox.createSession('SNPL-1', { ...SOURCE, workBranch: 'a b' })).rejects.toThrow()
+    await expect(sandbox.createSession('SNPL-1', { ...SOURCE, baseBranch: '../x' })).rejects.toThrow()
     expect(world.calls).toHaveLength(0)
+  })
+
+  it('asks for updateSharedRepo when the shared repo is not loaded', async () => {
+    const world = makeWorld()
+    world.loadedRepos = []
+    const sandbox = new WslTicketSandbox({ runWsl: withGetentLookup(world) })
+    await expect(sandbox.createSession('SNPL-12', SOURCE)).rejects.toThrow(/updateSharedRepo/)
+    expect(world.calls.some((call) => call.user === 't-snpl-12' && call.cmd[0] === '/bin/bash')).toBe(false)
   })
 
   it('stop kills processes and keeps the user; destroy removes it; list shows sessions', async () => {
@@ -279,5 +342,56 @@ describe('WslTicketSandbox sessions', () => {
     expect(world.users.has('t-snpl-12')).toBe(false)
     expect(world.users.has('tkt1')).toBe(true)
     await expect(sandbox.destroySession('SNPL-12')).resolves.toBeUndefined()
+  })
+})
+
+describe('WslTicketSandbox.updateSharedRepo', () => {
+  it('bundles the Windows project and streams the file into the distro as afrepos', async () => {
+    const world = makeWorld()
+    const bundled: string[][] = []
+    const sandbox = new WslTicketSandbox({
+      runWsl: makeFake(world),
+      bundleRepo: async (path, file) => void bundled.push([path, file])
+    })
+    await sandbox.updateSharedRepo('orca', 'C:\\Users\\k\\orca')
+    expect(bundled).toHaveLength(1)
+    expect(bundled[0][0]).toBe('C:\\Users\\k\\orca')
+    const call = world.calls.at(-1)
+    expect(call?.user).toBe('afrepos')
+    expect(call?.cmd).toEqual([
+      '/bin/bash',
+      '/usr/local/lib/autosfactory/update-repo.sh',
+      '/srv/autosfactory/repos',
+      'orca'
+    ])
+    expect(call?.opts?.inputFile).toBe(bundled[0][1])
+    expect(existsSync(bundled[0][1])).toBe(false)
+  })
+
+  it('removes the temp bundle even when the distro step fails', async () => {
+    let file = ''
+    const failing: RunWsl = async () => fail(1, 'fetch broke')
+    const sandbox = new WslTicketSandbox({
+      runWsl: failing,
+      bundleRepo: async (_path, target) => {
+        file = target
+        await writeFile(target, 'x')
+      }
+    })
+    await expect(sandbox.updateSharedRepo('orca', 'C:\\p')).rejects.toThrow(/fetch broke/)
+    expect(existsSync(file)).toBe(false)
+  })
+
+  it('rejects bad repo keys and relative paths before doing anything', async () => {
+    const world = makeWorld()
+    let called = false
+    const sandbox = new WslTicketSandbox({
+      runWsl: makeFake(world),
+      bundleRepo: async () => void (called = true)
+    })
+    await expect(sandbox.updateSharedRepo('../x', 'C:\\p')).rejects.toThrow()
+    await expect(sandbox.updateSharedRepo('orca', 'relative\\path')).rejects.toThrow(/absolute/)
+    expect(called).toBe(false)
+    expect(world.calls).toHaveLength(0)
   })
 })

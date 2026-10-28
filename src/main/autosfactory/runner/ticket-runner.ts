@@ -1,9 +1,9 @@
 import type {
   AgentHandle,
   AgentLauncher,
-  SandboxSource,
   TicketSandbox
 } from '../../../shared/autosfactory/ticket-runner-contract'
+import { SANDBOX_BASE_BRANCH } from '../../../shared/autosfactory/sandbox-config'
 import {
   MAX_RUNNING_AGENTS,
   ticketBranchName,
@@ -22,7 +22,7 @@ export type TicketRunnerDeps = {
   store: RunnerTicketStore
   sandbox: TicketSandbox
   launcher: AgentLauncher
-  resolveSource: (ticket: TicketRecord) => Promise<{ repoUrl: string; branch: string }>
+  resolveSource: (ticket: TicketRecord) => Promise<{ repoKey: string; windowsRepoPath: string }>
   maxRunning?: number
 }
 
@@ -35,7 +35,6 @@ export class TicketRunner {
   private readonly active = new Map<string, ActiveRun>()
   private readonly queue: string[] = []
   private readonly max: number
-  private ready = false
 
   constructor(private readonly deps: TicketRunnerDeps) {
     this.max = deps.maxRunning ?? MAX_RUNNING_AGENTS
@@ -105,7 +104,8 @@ export class TicketRunner {
     await this.deps.store.update(key, {
       agentStatus: 'idle',
       worktreePath: null,
-      conversationId: null
+      conversationId: null,
+      lastError: null
     })
   }
 
@@ -127,6 +127,7 @@ export class TicketRunner {
       await run.launching
     } catch (error) {
       this.release(key)
+      await this.recordLaunchError(key, error)
       throw error
     }
   }
@@ -135,13 +136,19 @@ export class TicketRunner {
     const ticket = this.requireTicket(key)
     await this.ensureSandboxReady()
     const source = await this.deps.resolveSource(ticket)
-    const session = await this.deps.sandbox.createSession(key, this.withBranch(key, source))
+    await this.deps.sandbox.updateSharedRepo(source.repoKey, source.windowsRepoPath)
+    const session = await this.deps.sandbox.createSession(key, {
+      repoKey: source.repoKey,
+      baseBranch: SANDBOX_BASE_BRANCH,
+      workBranch: ticketBranchName(key)
+    })
     const handle = await this.deps.launcher.start(session, key)
     run.handle = handle
     await this.deps.store.update(key, {
       agentStatus: 'running',
       worktreePath: session.worktreeDir,
-      conversationId: handle.id
+      conversationId: handle.id,
+      lastError: null
     })
     void handle.exited.then(
       (result) => this.onExit(key, handle, result),
@@ -149,22 +156,19 @@ export class TicketRunner {
     )
   }
 
-  // Why: the contract has a single branch field; it is the ticket's work branch, never the base.
-  private withBranch(key: string, source: { repoUrl: string }): SandboxSource {
-    return { repoUrl: source.repoUrl, branch: ticketBranchName(key) }
-  }
-
+  // Why: checked on every start, so a firewall or wsl.conf change since the last start is caught.
   private async ensureSandboxReady(): Promise<void> {
-    if (this.ready) {
-      return
-    }
     try {
       await this.deps.sandbox.ensureReady()
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       throw new Error(`The sandbox is not ready, so no agent was started: ${reason}`)
     }
-    this.ready = true
+  }
+
+  private async recordLaunchError(key: string, error: unknown): Promise<void> {
+    const lastError = error instanceof Error ? error.message : String(error)
+    await this.deps.store.update(key, { lastError }).catch(() => undefined)
   }
 
   private async onExit(

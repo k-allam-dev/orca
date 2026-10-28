@@ -29,12 +29,22 @@ export type TicketRecord = {
   worktreePath: string | null
   repoId: string | null
   handoffNote: string
+  lastError?: string | null
   createdAt: string
   updatedAt: string
 }
 
 export type TicketRecordPatch = Partial<
-  Pick<TicketRecord, 'agentStatus' | 'agent' | 'conversationId' | 'worktreePath' | 'repoId' | 'handoffNote'>
+  Pick<
+    TicketRecord,
+    | 'agentStatus'
+    | 'agent'
+    | 'conversationId'
+    | 'worktreePath'
+    | 'repoId'
+    | 'handoffNote'
+    | 'lastError'
+  >
 >
 
 // Why: the key becomes a file name, so it must never contain path separators or dots.
@@ -78,6 +88,7 @@ export function parseTicketRecord(raw: unknown): TicketRecord | null {
   const parsedConversation = stringOrNull(conversationId)
   const parsedWorktree = stringOrNull(worktreePath)
   const parsedRepoId = fields.repoId === undefined ? null : stringOrNull(fields.repoId)
+  const parsedLastError = fields.lastError === undefined ? null : stringOrNull(fields.lastError)
   if (
     version !== TICKET_RECORD_VERSION ||
     !isTicketKey(key) ||
@@ -88,6 +99,7 @@ export function parseTicketRecord(raw: unknown): TicketRecord | null {
     parsedConversation === undefined ||
     parsedWorktree === undefined ||
     parsedRepoId === undefined ||
+    parsedLastError === undefined ||
     typeof handoffNote !== 'string' ||
     typeof createdAt !== 'string' ||
     typeof updatedAt !== 'string'
@@ -105,6 +117,7 @@ export function parseTicketRecord(raw: unknown): TicketRecord | null {
     worktreePath: parsedWorktree,
     repoId: parsedRepoId,
     handoffNote,
+    lastError: parsedLastError,
     createdAt,
     updatedAt
   }

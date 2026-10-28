@@ -1,3 +1,8 @@
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { SHARED_REPOS_DIR } from '../src/shared/autosfactory/sandbox-config'
 import { runWslExe } from '../src/main/autosfactory/sandbox/wsl-exec'
 import { WslTicketSandbox } from '../src/main/autosfactory/sandbox/wsl-ticket-sandbox'
 
@@ -5,8 +10,9 @@ const DISTRO = process.argv[2]
 if (DISTRO !== 'af-test') {
   throw new Error('This smoke script only runs against the disposable distro af-test')
 }
-const KEY = 'ZZTEST-1'
-const BARE = '/tmp/zztest-bare.git'
+const REPO_KEY = 'zzrepo'
+const KEYS = ['ZZTEST-2', 'ZZTEST-3']
+const SHARED = `${SHARED_REPOS_DIR}/${REPO_KEY}.git`
 
 async function timed<T>(label: string, work: () => Promise<T>): Promise<T> {
   const start = Date.now()
@@ -15,40 +21,125 @@ async function timed<T>(label: string, work: () => Promise<T>): Promise<T> {
   return value
 }
 
-async function sh(user: string, script: string) {
-  return runWslExe(['-d', DISTRO, '-u', user, '--exec', '/bin/bash', '-s'], { input: script })
+async function sh(user: string, script: string): Promise<string> {
+  const result = await runWslExe(['-d', DISTRO, '-u', user, '--exec', '/bin/bash', '-s'], {
+    input: script
+  })
+  return `${result.stdout}${result.stderr}`.trim()
+}
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync(
+    'git',
+    ['-c', 'user.name=smoke', '-c', 'user.email=smoke@example.test', ...args],
+    { cwd, encoding: 'utf8' }
+  ).trim()
+}
+
+function commit(project: string, file: string, text: string): void {
+  writeFileSync(join(project, file), text)
+  git(project, 'add', '.')
+  git(project, 'commit', '-q', '-m', `add ${file}`)
+  git(project, 'push', '-q', 'origin', 'develop')
 }
 
 async function main(): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), 'af-smoke-'))
+  const origin = join(root, 'origin.git')
+  const project = join(root, 'project')
+  mkdirSync(project)
+  git(root, 'init', '-q', '--bare', '-b', 'develop', origin)
+  git(project, 'init', '-q', '-b', 'develop')
+  git(project, 'remote', 'add', 'origin', origin)
+  commit(project, 'one.txt', 'first\n')
+  commit(project, 'two.txt', 'second\n')
+
   const sandbox = new WslTicketSandbox({ runWsl: runWslExe, distro: DISTRO })
-  await sh('root', `set -e; rm -rf ${BARE} /tmp/zzseed; git init -q --bare ${BARE}; git init -q /tmp/zzseed; cd /tmp/zzseed; git -c user.name=t -c user.email=t@t commit -q --allow-empty -m init; git branch -M main; git push -q ${BARE} main; chmod -R a+rX ${BARE}; git config --system --add safe.directory ${BARE}; git -C ${BARE} symbolic-ref HEAD refs/heads/main`)
-  await timed('ensureReady', () => sandbox.ensureReady())
-  await timed('ensureReady (second call)', () => sandbox.ensureReady())
-  const session = await timed('createSession', () =>
-    sandbox.createSession(KEY, { repoUrl: BARE, branch: 'zztest-branch' })
-  )
-  console.log(JSON.stringify(session))
-  await timed('createSession again (idempotent)', () =>
-    sandbox.createSession(KEY, { repoUrl: BARE, branch: 'zztest-branch' })
-  )
-  const user = session.linuxUser
-  const report = await sh(
-    user,
-    `echo whoami=$(whoami); echo branch=$(git -C ${session.worktreeDir} branch --show-current); echo groups=$(id -nG); echo home_mode=$(stat -c %a $HOME); echo tkt1_read=$(cat /home/tkt1/s.txt 2>&1 | head -c 80); echo tkt1_ls=$(ls /home/tkt1 2>&1 | head -c 80); echo sudo=$(sudo -n true 2>&1 | head -c 80); echo mnt_c=[$(ls -A /mnt/c 2>&1)]; echo winexe=$(/mnt/c/Windows/System32/cmd.exe /c echo hi 2>&1 | head -c 80); echo gw_ping=$(timeout 3 bash -c 'echo > /dev/tcp/172.30.192.1/445' 2>&1 | head -c 80); echo net=$(timeout 8 git ls-remote https://github.com/octocat/Hello-World.git HEAD 2>&1 | head -c 60); echo nft_del=$(nft delete table inet fw 2>&1 | head -c 80)`
-  )
-  console.log(report.stdout.trim(), report.stderr.trim())
-  console.log('sessions', JSON.stringify(await sandbox.listSessions()))
-  await sh(user, 'sleep 300 &')
-  await timed('stopSession', () => sandbox.stopSession(KEY))
-  const afterStop = await sh('root', `pgrep -u ${user} | wc -l; test -d ${session.worktreeDir} && echo files_kept`)
-  console.log('after stop:', afterStop.stdout.trim().replace(/\n/g, ' '))
-  await timed('destroySession', () => sandbox.destroySession(KEY))
-  const gone = await sh('root', `getent passwd ${user} || echo user_gone; test -e /home/${user} || echo home_gone; rm -rf ${BARE} /tmp/zzseed; git config --system --unset-all safe.directory; echo cleaned`)
-  console.log('after destroy:', gone.stdout.trim().replace(/\n/g, ' '))
-  console.log('sessions', JSON.stringify(await sandbox.listSessions()))
+  try {
+    await timed('ensureReady', () => sandbox.ensureReady())
+    await timed('ensureReady (second call)', () => sandbox.ensureReady())
+    await timed('updateSharedRepo (first)', () => sandbox.updateSharedRepo(REPO_KEY, project))
+    const session = await timed(`createSession ${KEYS[0]}`, () =>
+      sandbox.createSession(KEYS[0], {
+        repoKey: REPO_KEY,
+        baseBranch: 'develop',
+        workBranch: 'autosfactory/ZZTEST-2'
+      })
+    )
+    console.log(JSON.stringify(session))
+    const user = session.linuxUser
+    const dir = session.worktreeDir
+    console.log(
+      await sh(
+        user,
+        [
+          `cd ${dir}`,
+          'echo branch=$(git branch --show-current)',
+          'echo files=$(ls | tr "\\n" " ")',
+          'echo owner=$(stat -c %U .)',
+          'echo write_own=$(echo x > mine.txt && echo yes || echo no)',
+          'git add mine.txt && git -c user.name=t -c user.email=t@t commit -q -m mine && echo commit=yes',
+          `echo write_shared=$(touch ${SHARED}/hack 2>&1 | head -1)`,
+          `echo write_shared_refs=$(echo deadbeef > ${SHARED}/refs/heads/develop 2>&1 | head -1)`,
+          `echo shared_owner=$(stat -c %U ${SHARED})`,
+          'echo sudo=$(sudo -n true 2>&1 | head -1)'
+        ].join('\n')
+      )
+    )
+
+    commit(project, 'three.txt', 'third\n')
+    await timed('updateSharedRepo (second, new commit)', () =>
+      sandbox.updateSharedRepo(REPO_KEY, project)
+    )
+    const second = await timed(`createSession ${KEYS[1]}`, () =>
+      sandbox.createSession(KEYS[1], {
+        repoKey: REPO_KEY,
+        baseBranch: 'develop',
+        workBranch: 'autosfactory/ZZTEST-3'
+      })
+    )
+    console.log(
+      await sh(
+        second.linuxUser,
+        `cd ${second.worktreeDir}; echo files=$(ls | tr "\\n" " "); echo branch=$(git branch --show-current)`
+      )
+    )
+    console.log(
+      'first ticket still has its own state:',
+      await sh(user, `cd ${dir}; echo files=$(ls | tr "\\n" " ")`)
+    )
+
+    const gateway = await sh('root', "ip route show default | awk '{print $3}'")
+    console.log(
+      await sh(
+        user,
+        [
+          'probe() { timeout 4 bash -c "exec 3<>/dev/tcp/$1/$2" 2>&1 | head -1; echo "$1:$2 exit=${PIPESTATUS[0]}"; }',
+          `probe ${gateway} 445`,
+          'probe 192.168.1.1 80',
+          'probe 10.1.2.3 80',
+          'probe 169.254.169.254 80',
+          'probe 1.1.1.1 443',
+          'echo dns=$(getent hosts github.com | head -1)',
+          'echo nft=$(/usr/sbin/nft delete table inet fw 2>&1 | head -1)'
+        ].join('\n')
+      )
+    )
+  } finally {
+    for (const key of KEYS) {
+      await sandbox.destroySession(key).catch((error) => console.error('destroy', key, error))
+    }
+    console.log(
+      await sh(
+        'root',
+        `rm -rf ${SHARED}; ls ${SHARED_REPOS_DIR}; getent passwd | grep -c "^t-zztest" || true`
+      )
+    )
+    rmSync(root, { recursive: true, force: true })
+  }
 }
 
-main().catch(async (error) => {
+main().catch((error) => {
   console.error('FAILED', error)
   process.exitCode = 1
 })
