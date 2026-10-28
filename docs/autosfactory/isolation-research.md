@@ -1,6 +1,6 @@
 # Isolated environment per ticket (WSL2): research notes (issue #31)
 
-Status: **mostly measured, one acceptance item open.** Measurements below were run on Kareem's PC on 2026-10-27 and 2026-10-28. "Seen working" means I ran it and saw the output. The criterion "one agent run inside an isolated environment that fails to read or write outside its project" is **not met yet**: Claude Code is installed inside the test environment but needs Kareem's sign-in (steps at the end).
+Status: **measured; the agent-run criterion is now met.** Measurements below were run on Kareem's PC on 2026-10-27 and 2026-10-28. "Seen working" means I ran it and saw the output. The criterion "one agent run inside an isolated environment that fails to read or write outside its project" is **met** (section "Agent run inside the environment"). Still open: hooks reaching the board, Antigravity inside Linux, and the worktree-in/result-out route.
 
 Setup: WSL 2.6.3, kernel 6.6.87.2, Ubuntu 26.04.1 LTS. The default WSL distro on this PC is `docker-desktop`, so every command must name the distro (`wsl -d <name>`). Test distro `af-test` is a copy of a fresh Ubuntu in `C:\Users\user\wsl-af-test` (remove with `wsl --unregister af-test`).
 
@@ -53,6 +53,25 @@ appendWindowsPath=false
 
 Installed with Node 22 (Ubuntu package) and `npm install -g @anthropic-ai/claude-code`: 319 s including Node, version 2.1.312, runs as the normal user. **Not run yet:** it needs a sign-in inside the environment, which only Kareem can do.
 
+## Agent run inside the environment [seen working, 2026-10-28]
+
+Claude Code 2.1.312, signed in by Kareem inside `af-test`, was run as the normal Linux user with `--dangerously-skip-permissions` (the way Orca launches it by default), from `~/proj`, and told to run eight boundary commands and report each result without workarounds. It ran in 11 s. Result, as reported by the agent:
+
+| #   | Command                                      | Result                                           |
+| --- | -------------------------------------------- | ------------------------------------------------ |
+| 1   | `ls /mnt/c`                                  | succeeded, **empty** (the drive is not mounted)  |
+| 2   | `cat /mnt/c/Windows/win.ini`                 | failed: `No such file or directory`              |
+| 3   | `/mnt/c/Windows/System32/cmd.exe /c echo hi` | failed: `No such file or directory` (exit 127)   |
+| 4   | `cat /home/tkt1/s.txt` (another user's file) | failed: `Permission denied`                      |
+| 5   | `ls /home/tkt2`                              | failed: `Permission denied`                      |
+| 6   | `echo test > /etc/sandbox-write-test`        | failed: `Permission denied`                      |
+| 7   | `echo ok > ./inside-project.txt`             | succeeded (inside its own project)               |
+| 8   | `sudo -n true`                               | failed: `interactive authentication is required` |
+
+**Finding to act on:** command 8 shows the default user _has_ sudo (it needs a password, which the agent does not have). The agent must therefore run as a dedicated ticket user (design 2) that is not in the `sudo` group, as `tkt2` was, not as the default user. Even with all prompts skipped, the agent could not read outside its project or the Windows PC.
+
+Not covered by this run: the agent was told to try these commands, so it shows the environment's limits, not the agent's own behaviour; it was not tried against hostile prompts, network exfiltration to the internet (the internet is open), or the Windows host firewall rule (tested separately above).
+
 ## Orca and WSL [read in code, file names only]
 
 `src/wsl-guest/` holds a guest-side hook server and dispatcher (`agent-hook-server.ts`, `dispatcher-*.ts`) and `src/main/wsl-*.ts` handles distro availability, bash commands, contained deletes and approved roots, which suggests agent hooks and status can reach the app from inside a WSL distro. **Not checked:** how Orca picks the distro for a workspace, whether it can target a per-ticket distro, and whether the guest code needs the `/mnt/c` mount or the Windows bridge that is switched off here.
@@ -71,7 +90,9 @@ Installed with Node 22 (Ubuntu package) and `npm install -g @anthropic-ai/claude
 
 Use **design 2** (one hardened distro, a Linux user per ticket) as the base: 0.3 s per ticket and no extra disk against 32 s and 1.4 GB. Add the root-owned firewall rule and the drive and command-bridge switch-off. Treat design 1 as the stronger option if you decide tickets must not share a filesystem or process list. This changes **#22** (safe launch: the agent launches as the ticket's Linux user and the permission policy lives outside its reach) and **#23** (the runner creates and deletes the user and its worktree, and re-applies the firewall rule).
 
-## What Kareem needs to do (about 5 minutes)
+## Still to do
 
-1. In PowerShell: `wsl -d af-test -u user` then run `claude` and sign in (it prints a link; open it in your Windows browser). Then exit.
-2. Tell me when done. I then run Claude Code headless inside the environment, ask it to read `C:\Windows\win.ini`, a file outside its project and to write outside its project, and record the failed attempts here.
+1. Check that agent hooks and status still reach Orca from inside the environment (needs the app running with a workspace in the environment).
+2. Try Antigravity inside the environment (needs a Google sign-in by Kareem).
+3. Decide and test how the worktree gets in and the result gets out for review (#24).
+4. Automate the firewall rule and ticket-user creation (part of #22/#23).
