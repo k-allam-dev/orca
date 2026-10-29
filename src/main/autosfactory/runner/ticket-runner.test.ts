@@ -72,6 +72,7 @@ function makeHarness(
         throw options.readyError
       }
     },
+    applyPolicy: async (ticketKey) => ({ claudeSettings: `/p/${ticketKey}/c.json`, antigravitySettings: `/p/${ticketKey}/a.json` }),
     updateSharedRepo: async (repoKey, windowsRepoPath) => {
       if (failure.updateError) {
         throw failure.updateError

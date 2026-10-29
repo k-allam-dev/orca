@@ -15,7 +15,8 @@ export const notWiredSandbox: TicketSandbox = {
   createSession: notWired,
   stopSession: notWired,
   destroySession: notWired,
-  listSessions: notWired
+  listSessions: notWired,
+  applyPolicy: notWired
 }
 
 export const notWiredLauncher: AgentLauncher = {

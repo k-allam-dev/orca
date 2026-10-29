@@ -1,16 +1,25 @@
 import type {
+  AppliedPolicyPaths,
   SandboxSession,
   SandboxSource,
   TicketSandbox
 } from '../../../shared/autosfactory/ticket-runner-contract'
 import {
+  CLAUDE_MANAGED_SETTINGS_PATH,
   DEFAULT_SANDBOX_DISTRO,
-    SHARED_REPOS_DIR,
+  SHARED_REPOS_DIR,
   SHARED_REPOS_USER,
   TICKET_USER_MARKER,
+  TICKET_POLICY_DIR,
   TICKET_USER_PREFIX,
   UPDATE_REPO_SCRIPT_PATH
 } from '../../../shared/autosfactory/sandbox-config'
+import type { EffectivePolicy } from '../../../shared/autosfactory/permission-policy'
+import {
+  toAntigravitySettings,
+  toClaudeManagedSettings,
+  toClaudeTicketSettings
+} from '../../../shared/autosfactory/permission-translators'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, win32 } from 'node:path'
@@ -214,6 +223,26 @@ export class WslTicketSandbox implements TicketSandbox {
     return sessionFor(ticketKey, entry)
   }
 
+  async applyPolicy(ticketKey: string, policy: EffectivePolicy): Promise<AppliedPolicyPaths> {
+    assertTicketKey(ticketKey)
+    const dir = `${TICKET_POLICY_DIR}/${ticketKey}`
+    const paths = { claudeSettings: `${dir}/claude-settings.json`, antigravitySettings: `${dir}/antigravity-settings.json` }
+    const files: [string, unknown][] = [
+      [CLAUDE_MANAGED_SETTINGS_PATH, toClaudeManagedSettings(policy.global)],
+      [paths.claudeSettings, toClaudeTicketSettings(policy)],
+      [paths.antigravitySettings, toAntigravitySettings(policy).settings]
+    ]
+    await this.rootMust(['/usr/bin/mkdir', '-p', '/etc/claude-code', dir], 'create the policy folders')
+    for (const [path, content] of files) {
+      await this.rootMust(['/usr/bin/tee', path], `write ${path}`, { input: JSON.stringify(content, null, 2) + String.fromCharCode(10) })
+    }
+    const paths644 = files.map(([path]) => path)
+    await this.rootMust(['/usr/bin/chown', 'root:root', '/etc/claude-code', dir, ...paths644], 'own the policy files as root')
+    await this.rootMust(['/usr/bin/chmod', '755', '/etc/claude-code', dir], 'set policy folder modes')
+    await this.rootMust(['/usr/bin/chmod', '644', ...paths644], 'set policy file modes')
+    return paths
+  }
+
   async stopSession(ticketKey: string): Promise<void> {
     const entry = await this.ownedUser(ticketKey)
     if (entry) {
@@ -227,6 +256,7 @@ export class WslTicketSandbox implements TicketSandbox {
       return
     }
     await this.killProcesses(entry.name)
+    await this.root(['/usr/bin/rm', '-rf', `${TICKET_POLICY_DIR}/${ticketKey}`])
     const removed = await this.root(['/usr/sbin/userdel', '-r', entry.name])
     const stillThere = await this.findUser(entry.name)
     const homeLeft = await this.root(['/usr/bin/test', '-e', entry.home])

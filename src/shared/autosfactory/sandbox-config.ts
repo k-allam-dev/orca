@@ -10,3 +10,5 @@ export function sandboxDistroFromEnv(env: Readonly<Record<string, string | undef
   const name = env.AUTOSFACTORY_WSL_DISTRO?.trim()
   return name ? name : DEFAULT_SANDBOX_DISTRO
 }
+export const CLAUDE_MANAGED_SETTINGS_PATH = '/etc/claude-code/managed-settings.json'
+export const TICKET_POLICY_DIR = '/etc/autosfactory/policy'

@@ -7,6 +7,7 @@ import { parseWslConf, missingWslConfSettings } from './wsl-conf'
 import { decodeWslOutput } from './wsl-exec'
 import type { RunWsl, WslOptions, WslResult } from './wsl-exec'
 import { WslTicketSandbox } from './wsl-ticket-sandbox'
+import { baselineRules, effectivePolicy } from '../../../shared/autosfactory/permission-policy'
 
 const GOOD_CONF =
   '[automount]\nenabled=false\nmountFsTab=false\n[interop]\nenabled=false\nappendWindowsPath=false\n'
@@ -393,5 +394,48 @@ describe('WslTicketSandbox.updateSharedRepo', () => {
     await expect(sandbox.updateSharedRepo('orca', 'relative\\path')).rejects.toThrow(/absolute/)
     expect(called).toBe(false)
     expect(world.calls).toHaveLength(0)
+  })
+})
+
+describe('WslTicketSandbox.applyPolicy', () => {
+  it('installs root-owned, non-writable policy files and returns their paths', async () => {
+    const calls: Call[] = []
+    const runWsl: RunWsl = async (args, opts) => {
+      calls.push({ user: args[args.indexOf('-u') + 1], cmd: args.slice(args.indexOf('--exec') + 1), opts })
+      return ok()
+    }
+    const policy = effectivePolicy(baselineRules(), { allow: ['Bash(make test)'], ask: [], deny: [] })
+    const paths = await new WslTicketSandbox({ runWsl }).applyPolicy('SNPL-12', policy)
+    expect(paths).toEqual({
+      claudeSettings: '/etc/autosfactory/policy/SNPL-12/claude-settings.json',
+      antigravitySettings: '/etc/autosfactory/policy/SNPL-12/antigravity-settings.json'
+    })
+    expect(calls.every((call) => call.user === 'root')).toBe(true)
+    const writes = calls.filter((call) => call.cmd[0] === '/usr/bin/tee')
+    expect(writes.map((call) => call.cmd[1])).toEqual([
+      '/etc/claude-code/managed-settings.json',
+      paths.claudeSettings,
+      paths.antigravitySettings
+    ])
+    expect(JSON.parse(writes[0].opts?.input ?? '').permissions.disableBypassPermissionsMode).toBe('disable')
+    expect(JSON.parse(writes[1].opts?.input ?? '').permissions.allow).toContain('Bash(make test)')
+    expect(JSON.parse(writes[2].opts?.input ?? '').permissions.allow).toContain('command(make test)')
+    const chown = calls.find((call) => call.cmd[0] === '/usr/bin/chown')
+    expect(chown?.cmd.slice(1, 3)).toEqual(['root:root', '/etc/claude-code'])
+    const modes = calls.filter((call) => call.cmd[0] === '/usr/bin/chmod').map((call) => call.cmd[1])
+    expect(modes).toEqual(['755', '644'])
+    const lastWrite = calls.map((call) => call.cmd[0]).lastIndexOf('/usr/bin/tee')
+    expect(calls.findIndex((call) => call.cmd[0] === '/usr/bin/chmod')).toBeGreaterThan(lastWrite)
+  })
+
+  it('rejects a bad ticket key before touching WSL and removes the files on destroy', async () => {
+    const world = makeWorld()
+    world.users.set('t-snpl-12', { comment: 'af-ticket=SNPL-12', groups: 'x' })
+    const sandbox = new WslTicketSandbox({ runWsl: withGetentLookup(world) })
+    const policy = effectivePolicy(baselineRules(), { allow: [], ask: [], deny: [] })
+    await expect(sandbox.applyPolicy('../x-1', policy)).rejects.toThrow()
+    expect(world.calls).toHaveLength(0)
+    await sandbox.destroySession('SNPL-12')
+    expect(world.calls.some((call) => call.cmd[0] === '/usr/bin/rm' && call.cmd[2] === '/etc/autosfactory/policy/SNPL-12')).toBe(true)
   })
 })

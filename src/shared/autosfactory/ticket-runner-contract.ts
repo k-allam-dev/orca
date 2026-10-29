@@ -1,11 +1,18 @@
 // Contract between the ticket runner (src/main/autosfactory/runner/) and the WSL sandbox layer (src/main/autosfactory/sandbox/).
 // Decision (#31): one hardened WSL distro, one dedicated non-sudo Linux user per ticket.
 
+import type { EffectivePolicy } from './permission-policy'
+
 export type SandboxSession = {
   ticketKey: string
   linuxUser: string
   homeDir: string
   worktreeDir: string
+}
+
+export type AppliedPolicyPaths = {
+  claudeSettings: string
+  antigravitySettings: string
 }
 
 export type SandboxSource = {
@@ -29,6 +36,8 @@ export type TicketSandbox = {
   /** Kills the ticket user's processes and deletes the user and its home (cancel). */
   destroySession(ticketKey: string): Promise<void>
   listSessions(): Promise<SandboxSession[]>
+  /** Installs the translated permission files root-owned and unwritable by the ticket user, and returns the paths the launcher passes to the agents' --settings flag. */
+  applyPolicy(ticketKey: string, policy: EffectivePolicy): Promise<AppliedPolicyPaths>
 }
 
 export type AgentHandle = {
