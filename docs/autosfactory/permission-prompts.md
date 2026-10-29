@@ -116,3 +116,15 @@ Orca's terminal mode runs the Claude Code CLI (v2.1.312). This is a different su
 | Deny                        | 4. No                                                                 | none                                                                                                                                                                                   |
 
 Not captured yet: the prompt for a file edit, Accept edits mode, and the prompt in Auto mode.
+
+## Antigravity interactive prompt, mapped to our three buttons (seen on screen, 2026-10-29)
+
+| Our button                  | Antigravity CLI (interactive)                                                                     | Gap                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Allow once                  | 1. Yes, run command                                                                               | none                                                                                              |
+| Allow for this session      | 2. Yes, and always allow in this conversation for commands that start with the exact command text | none (scope is the conversation)                                                                  |
+| Allow for the whole project | 3. Yes, and always allow ... (Persist to settings.json)                                           | the rule goes to the user-level `~\.gemini\antigravity-cli\settings.json`, not a per-project file |
+| Make permanent link         | option 3                                                                                          | same as above; our own policy file would still be the source of truth                             |
+| Deny                        | 4. No, cancel                                                                                     | none                                                                                              |
+
+Antigravity's rule is the exact command text, narrower than Claude Code's `curl *`. Details of the headless behaviour are in `acp-research.md`.

@@ -83,3 +83,20 @@ Findings:
 - The interactive CLI (`agy` without `-p`) was **not tested**; it is the likely way to get live prompts on Windows, as with Claude Code in Orca's terminal, but that is unverified.
 
 **Not tested yet:** whether an allow rule is honoured headless (needs a temporary edit of Kareem's settings file, which is a standing setting, so it waits for his OK), the streaming two-way mode, the interactive prompt, and Orca's ACP route inside the Linux sandbox.
+
+### Follow-up tests, same day (agy 1.4.10 interactive; 1.4.8 headless)
+
+**Interactive prompt [seen on screen].** Running `agy` in a terminal and asking for `curl https://example.com` shows "Requesting permission for: `curl.exe -s https://example.com`. Run this command?" with 1. Yes, run command. 2. Yes, and always allow in this conversation for commands that start with `curl.exe -s https://example.com`. 3. Yes, and always allow for commands that start with that text (Persist to settings.json). 4. No, cancel. Footer: Tab amend, Ctrl+G edit or expand the command, Esc cancel. So the terminal mode has live prompts at three levels: once, this conversation, permanent, and the rule is the exact command text, not a wildcard.
+
+**Allow rules headless [seen working].** With `command(curl.exe -s https://example.com)` added to `permissions.allow` (settings file backed up and restored afterwards):
+
+- the exact command ran and returned the page;
+- the same command with another URL was auto-denied;
+- the same command with extra arguments (`-o extra-output.txt`) was auto-denied;
+- the same command chained with `& echo chained > chained.txt` was auto-denied; neither file was created.
+
+So the allow rule is held to the exact command in headless mode in these four cases. The earlier worry from planning (#6) that allow rules might be ignored headless was **not reproduced** here. The interactive prompt text says "start with", so prefix behaviour in the terminal mode was not tested; only these four headless variants were.
+
+**Tooling notes.** Antigravity updated from 1.4.8 to 1.4.10 during the session. Kareem ran the interactive test in an Administrator PowerShell window; agents must never run elevated.
+
+**Not tested:** the two-way streaming mode (`--input-format stream-json`), prefix matching in the interactive mode, and Orca's ACP route inside the Linux sandbox (waits until the rest is working, by Kareem's decision).
