@@ -51,6 +51,11 @@ export const TicketCard = memo(function TicketCard({
         <AgentStateDot state={agentStatusDotState(ticket.agentStatus)} className="ml-auto" />
       </div>
       <div className="line-clamp-2 text-xs leading-snug text-foreground/90">{ticket.title}</div>
+      {ticket.lastError ? (
+        <div className="line-clamp-2 text-[11px] text-red-600" data-autosfactory-last-error="">
+          {ticket.lastError}
+        </div>
+      ) : null}
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {ticket.agent ? (
           <>

@@ -2,7 +2,8 @@ import type {
   AppliedPolicyPaths,
   SandboxSession,
   SandboxSource,
-  TicketSandbox
+  TicketSandbox,
+  UpdateSharedRepoResult
 } from '../../../shared/autosfactory/ticket-runner-contract'
 import {
   CLAUDE_MANAGED_SETTINGS_PATH,
@@ -30,13 +31,13 @@ import {
   PRIVATE_IPV4_RANGES
 } from './firewall-rule'
 import { UPDATE_REPO_SCRIPT } from './update-repo-script'
-import { bundleWindowsRepo, type BundleRepo } from './windows-bundle'
 import {
-  assertBranchName,
-  assertRepoKey,
-  assertTicketKey,
-  linuxUserForTicket
-} from './ticket-user'
+  bundleWindowsRepo,
+  fetchWindowsRepo,
+  type BundleRepo,
+  type FetchRepo
+} from './windows-bundle'
+import { assertBranchName, assertRepoKey, assertTicketKey, linuxUserForTicket } from './ticket-user'
 import {
   missingWslConfSettings,
   parseWslConf,
@@ -60,6 +61,8 @@ export type WslTicketSandboxOptions = {
   installNftables?: boolean
   /** Writes a git bundle of the Windows project's latest base branch to a file. */
   bundleRepo?: BundleRepo
+  /** Runs `git fetch origin develop` in the Windows project. */
+  fetchRepo?: FetchRepo
 }
 
 type PasswdEntry = { name: string; comment: string; home: string }
@@ -84,11 +87,10 @@ if [ ! -d "$dir/.git" ]; then
   rm -rf "$dir"
   git clone --local --no-hardlinks --no-checkout -q -- "$repo" "$dir" || { rm -rf "$dir"; exit 1; }
   cd "$dir"
-  git checkout -q -b "$work" "origin/$base"
 else
   cd "$dir"
-  git checkout -q "$work" 2>/dev/null || git checkout -q -b "$work" "origin/$base"
 fi
+git checkout -q "$work" 2>/dev/null || git checkout -q -b "$work" "origin/$base"
 `
 
 // args: <repos dir> <repos user> <update script path>; idempotent, run as root.
@@ -136,12 +138,14 @@ export class WslTicketSandbox implements TicketSandbox {
   private readonly distro: string
   private readonly installNftables: boolean
   private readonly bundleRepo: BundleRepo
+  private readonly fetchRepo: FetchRepo
 
   constructor(options: WslTicketSandboxOptions) {
     this.runWsl = options.runWsl
     this.distro = options.distro ?? DEFAULT_SANDBOX_DISTRO
     this.installNftables = options.installNftables ?? false
     this.bundleRepo = options.bundleRepo ?? bundleWindowsRepo
+    this.fetchRepo = options.fetchRepo ?? fetchWindowsRepo
   }
 
   async ensureReady(): Promise<void> {
@@ -152,10 +156,21 @@ export class WslTicketSandbox implements TicketSandbox {
     await this.prepareSharedRepos()
   }
 
-  async updateSharedRepo(repoKey: string, windowsRepoPath: string): Promise<void> {
+  async updateSharedRepo(
+    repoKey: string,
+    windowsRepoPath: string
+  ): Promise<UpdateSharedRepoResult> {
     assertRepoKey(repoKey)
-    if (!windowsRepoPath.trim() || !(isAbsolute(windowsRepoPath) || win32.isAbsolute(windowsRepoPath))) {
+    if (
+      !windowsRepoPath.trim() ||
+      !(isAbsolute(windowsRepoPath) || win32.isAbsolute(windowsRepoPath))
+    ) {
       throw new Error(`The project path must be absolute: ${JSON.stringify(windowsRepoPath)}`)
+    }
+    try {
+      await this.fetchRepo(windowsRepoPath)
+    } catch (error) {
+      return this.keepLastCopy(repoKey, error)
     }
     const tempDir = await mkdtemp(join(tmpdir(), 'autosfactory-bundle-'))
     try {
@@ -177,6 +192,17 @@ export class WslTicketSandbox implements TicketSandbox {
     } finally {
       await rm(tempDir, { recursive: true, force: true })
     }
+    return { warning: null }
+  }
+
+  // Why: starting from slightly stale code is fine, so a failed fetch only matters when no copy exists yet.
+  private async keepLastCopy(repoKey: string, error: unknown): Promise<UpdateSharedRepoResult> {
+    const reason = error instanceof Error ? error.message : String(error)
+    const loaded = await this.root(['/usr/bin/test', '-d', `${SHARED_REPOS_DIR}/${repoKey}.git`])
+    if (loaded.code !== 0) {
+      throw new Error(`Could not fetch ${repoKey} and no earlier copy exists: ${reason}`)
+    }
+    return { warning: `Could not fetch ${repoKey}; using its last copy. ${reason}` }
   }
 
   async createSession(ticketKey: string, source: SandboxSource): Promise<SandboxSession> {
@@ -189,7 +215,9 @@ export class WslTicketSandbox implements TicketSandbox {
 
     let entry = await this.findUser(user)
     if (entry && entry.comment !== marker) {
-      throw new Error(`Linux user ${user} already exists and does not belong to ticket ${ticketKey}.`)
+      throw new Error(
+        `Linux user ${user} already exists and does not belong to ticket ${ticketKey}.`
+      )
     }
     if (!entry) {
       await this.rootMust(
@@ -226,19 +254,33 @@ export class WslTicketSandbox implements TicketSandbox {
   async applyPolicy(ticketKey: string, policy: EffectivePolicy): Promise<AppliedPolicyPaths> {
     assertTicketKey(ticketKey)
     const dir = `${TICKET_POLICY_DIR}/${ticketKey}`
-    const paths = { claudeSettings: `${dir}/claude-settings.json`, antigravitySettings: `${dir}/antigravity-settings.json` }
+    const paths = {
+      claudeSettings: `${dir}/claude-settings.json`,
+      antigravitySettings: `${dir}/antigravity-settings.json`
+    }
     const files: [string, unknown][] = [
       [CLAUDE_MANAGED_SETTINGS_PATH, toClaudeManagedSettings(policy.global)],
       [paths.claudeSettings, toClaudeTicketSettings(policy)],
       [paths.antigravitySettings, toAntigravitySettings(policy).settings]
     ]
-    await this.rootMust(['/usr/bin/mkdir', '-p', '/etc/claude-code', dir], 'create the policy folders')
+    await this.rootMust(
+      ['/usr/bin/mkdir', '-p', '/etc/claude-code', dir],
+      'create the policy folders'
+    )
     for (const [path, content] of files) {
-      await this.rootMust(['/usr/bin/tee', path], `write ${path}`, { input: JSON.stringify(content, null, 2) + String.fromCharCode(10) })
+      await this.rootMust(['/usr/bin/tee', path], `write ${path}`, {
+        input: JSON.stringify(content, null, 2) + String.fromCharCode(10)
+      })
     }
     const paths644 = files.map(([path]) => path)
-    await this.rootMust(['/usr/bin/chown', 'root:root', '/etc/claude-code', dir, ...paths644], 'own the policy files as root')
-    await this.rootMust(['/usr/bin/chmod', '755', '/etc/claude-code', dir], 'set policy folder modes')
+    await this.rootMust(
+      ['/usr/bin/chown', 'root:root', '/etc/claude-code', dir, ...paths644],
+      'own the policy files as root'
+    )
+    await this.rootMust(
+      ['/usr/bin/chmod', '755', '/etc/claude-code', dir],
+      'set policy folder modes'
+    )
     await this.rootMust(['/usr/bin/chmod', '644', ...paths644], 'set policy file modes')
     return paths
   }

@@ -34,3 +34,11 @@ describe('parseTicketRecord lastError', () => {
     expect(parseTicketRecord({ ...saved, lastError: 5 })).toBeNull()
   })
 })
+
+describe('parseTicketRecord lastWarning', () => {
+  it('reads an older record as null and keeps a string', () => {
+    expect(parseTicketRecord(saved)?.lastWarning).toBeNull()
+    expect(parseTicketRecord({ ...saved, lastWarning: 'stale' })?.lastWarning).toBe('stale')
+    expect(parseTicketRecord({ ...saved, lastWarning: 5 })).toBeNull()
+  })
+})

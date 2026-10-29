@@ -12,7 +12,13 @@ import { JIRA_INTAKE_INTERVAL_MS, type JiraSyncResult } from '../../shared/autos
 import { JiraIntake } from './jira-intake'
 import { orcaJiraReadClient } from './jira-read-client'
 import { TicketRunner } from './runner/ticket-runner'
-import { notWiredLauncher, notWiredResolveSource, notWiredSandbox } from './runner/not-wired'
+import {
+  notWiredLauncher,
+  notWiredListRepos,
+  notWiredResolveSource,
+  notWiredSandbox
+} from './runner/not-wired'
+import { SharedRepoRefresher } from './runner/shared-repo-refresher'
 import { TicketStateStore } from './ticket-state-store'
 
 function parsePatch(value: unknown): TicketRecordPatch {
@@ -97,6 +103,13 @@ export function registerTicketHandlers(userDataPath: string): void {
     launcher: notWiredLauncher,
     resolveSource: notWiredResolveSource
   })
+  const refresher = new SharedRepoRefresher({
+    sandbox: notWiredSandbox,
+    listRepos: notWiredListRepos
+  })
+  refresher.start()
+  ipcMain.handle('autosfactory:repos:refresh', () => refresher.refreshNow())
+  ipcMain.handle('autosfactory:repos:refresh-status', () => refresher.getStatus())
   const requireKey = (args: { key?: unknown } | undefined): string => {
     if (!isTicketKey(args?.key)) {
       throw new Error('A valid ticket key is required.')

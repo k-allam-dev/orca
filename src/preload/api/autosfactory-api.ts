@@ -3,6 +3,7 @@ import type {
   JiraSyncResult,
   JiraSyncStatus
 } from '../../shared/autosfactory/jira-intake'
+import type { SharedRepoRefreshStatus } from '../../shared/autosfactory/shared-repo-refresh'
 import type { RunnerStartResult, RunnerStatus } from '../../shared/autosfactory/ticket-runner'
 import type {
   TicketRecord,
@@ -20,6 +21,8 @@ export type AutosfactoryApi = {
   runnerPause: (args: { key: string }) => Promise<void>
   runnerCancel: (args: { key: string; confirmed: boolean }) => Promise<void>
   runnerStatus: () => Promise<RunnerStatus>
+  refreshRepos: () => Promise<SharedRepoRefreshStatus>
+  getRepoRefreshStatus: () => Promise<SharedRepoRefreshStatus>
   syncNow: () => Promise<JiraSyncResult>
   getSyncStatus: () => Promise<JiraSyncStatus>
   listJiraStatuses: () => Promise<Record<string, string>>

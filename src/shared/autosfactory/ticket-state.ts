@@ -30,6 +30,7 @@ export type TicketRecord = {
   repoId: string | null
   handoffNote: string
   lastError?: string | null
+  lastWarning?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -44,6 +45,7 @@ export type TicketRecordPatch = Partial<
     | 'repoId'
     | 'handoffNote'
     | 'lastError'
+    | 'lastWarning'
   >
 >
 
@@ -89,6 +91,8 @@ export function parseTicketRecord(raw: unknown): TicketRecord | null {
   const parsedWorktree = stringOrNull(worktreePath)
   const parsedRepoId = fields.repoId === undefined ? null : stringOrNull(fields.repoId)
   const parsedLastError = fields.lastError === undefined ? null : stringOrNull(fields.lastError)
+  const parsedLastWarning =
+    fields.lastWarning === undefined ? null : stringOrNull(fields.lastWarning)
   if (
     version !== TICKET_RECORD_VERSION ||
     !isTicketKey(key) ||
@@ -100,6 +104,7 @@ export function parseTicketRecord(raw: unknown): TicketRecord | null {
     parsedWorktree === undefined ||
     parsedRepoId === undefined ||
     parsedLastError === undefined ||
+    parsedLastWarning === undefined ||
     typeof handoffNote !== 'string' ||
     typeof createdAt !== 'string' ||
     typeof updatedAt !== 'string'
@@ -118,6 +123,7 @@ export function parseTicketRecord(raw: unknown): TicketRecord | null {
     repoId: parsedRepoId,
     handoffNote,
     lastError: parsedLastError,
+    lastWarning: parsedLastWarning,
     createdAt,
     updatedAt
   }

@@ -136,11 +136,11 @@ export class TicketRunner {
     const ticket = this.requireTicket(key)
     await this.ensureSandboxReady()
     const source = await this.deps.resolveSource(ticket)
-    await this.deps.sandbox.updateSharedRepo(source.repoKey, source.windowsRepoPath)
+    const update = await this.deps.sandbox.updateSharedRepo(source.repoKey, source.windowsRepoPath)
     const session = await this.deps.sandbox.createSession(key, {
       repoKey: source.repoKey,
       baseBranch: SANDBOX_BASE_BRANCH,
-      workBranch: ticketBranchName(key)
+      workBranch: ticketBranchName(key, ticket.title)
     })
     const handle = await this.deps.launcher.start(session, key)
     run.handle = handle
@@ -148,7 +148,8 @@ export class TicketRunner {
       agentStatus: 'running',
       worktreePath: session.worktreeDir,
       conversationId: handle.id,
-      lastError: null
+      lastError: null,
+      lastWarning: update.warning
     })
     void handle.exited.then(
       (result) => this.onExit(key, handle, result),
@@ -168,7 +169,7 @@ export class TicketRunner {
 
   private async recordLaunchError(key: string, error: unknown): Promise<void> {
     const lastError = error instanceof Error ? error.message : String(error)
-    await this.deps.store.update(key, { lastError }).catch(() => undefined)
+    await this.deps.store.update(key, { agentStatus: 'failed', lastError }).catch(() => undefined)
   }
 
   private async onExit(
@@ -200,9 +201,8 @@ export class TicketRunner {
       if (next === undefined) {
         return
       }
-      void this.launch(next).catch(async () => {
-        await this.deps.store.update(next, { agentStatus: 'failed' }).catch(() => undefined)
-      })
+      // Why: launch already stores the failed status and error.
+      void this.launch(next).catch(() => undefined)
     }
   }
 

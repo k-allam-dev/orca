@@ -1,8 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useAllWorktrees } from '@/store/selectors'
 import { useMemo } from 'react'
 import { refreshUnstartedData, useUnstartedData } from './unstarted-tickets-store'
+import {
+  describeRefreshStatus,
+  type SharedRepoRefreshStatus
+} from '../../../../shared/autosfactory/shared-repo-refresh'
 import { selectUnstartedTickets, syncBannerFor } from './unstarted-tickets-model'
 
 /** Slim Jira bar under the board header: the sync button and the sync banner. */
@@ -15,6 +19,23 @@ export function UnstartedTicketsPanel(): React.JSX.Element | null {
     [data.tickets, worktrees]
   )
   const banner = syncBannerFor(data.sync)
+  const [refresh, setRefresh] = useState<SharedRepoRefreshStatus | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+
+  useEffect(() => {
+    void window.api.autosfactory.getRepoRefreshStatus().then(setRefresh, () => undefined)
+  }, [])
+
+  const refreshCode = async (): Promise<void> => {
+    setRefreshing(true)
+    try {
+      setRefresh(await window.api.autosfactory.refreshRepos())
+    } catch {
+      setRefresh(await window.api.autosfactory.getRepoRefreshStatus().catch(() => null))
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const syncNow = async (): Promise<void> => {
     setSyncing(true)
@@ -42,7 +63,20 @@ export function UnstartedTicketsPanel(): React.JSX.Element | null {
         >
           {syncing ? 'Syncing...' : 'Sync now'}
         </Button>
+        <Button size="sm" variant="ghost" disabled={refreshing} onClick={() => void refreshCode()}>
+          {refreshing ? 'Refreshing...' : 'Refresh code'}
+        </Button>
       </div>
+      {refresh ? (
+        <div
+          className="px-3 pb-1.5 text-xs text-muted-foreground"
+          data-autosfactory-refresh-status=""
+        >
+          {describeRefreshStatus(refresh).map((line) => (
+            <div key={line}>{line}</div>
+          ))}
+        </div>
+      ) : null}
       {banner.kind !== 'none' ? (
         <div role="alert" className="mx-3 mb-2 rounded-md border border-border bg-muted px-2 py-1">
           <div>

@@ -18,6 +18,7 @@ export function assertBranchName(branch: string): void {
     !BRANCH_PATTERN.test(branch) ||
     branch.includes('..') ||
     branch.includes('//') ||
+    branch.includes('/.') ||
     branch.endsWith('/') ||
     branch.endsWith('.') ||
     branch.endsWith('.lock')

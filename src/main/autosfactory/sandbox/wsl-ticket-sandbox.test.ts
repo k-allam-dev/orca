@@ -98,7 +98,9 @@ function makeFake(world: FakeWorld): RunWsl {
         if (rest.length === 2) {
           return fail(2)
         }
-        const lines = [...world.users].map(([name, u]) => `${name}:x:1:1:${u.comment}:/home/${name}:/bin/bash`)
+        const lines = [...world.users].map(
+          ([name, u]) => `${name}:x:1:1:${u.comment}:/home/${name}:/bin/bash`
+        )
         return ok(`root:x:0:0:root:/root:/bin/bash\n${lines.join('\n')}\n`)
       }
       case '/usr/sbin/useradd': {
@@ -144,7 +146,16 @@ describe('ticket user derivation', () => {
   })
 
   it('rejects hostile keys', () => {
-    for (const key of ['../x-1', 'SNPL 12', 'SNPL-1"', 'SNPL-1;id', 'snpl-1', 'SNPL-', '', 'A-1\n']) {
+    for (const key of [
+      '../x-1',
+      'SNPL 12',
+      'SNPL-1"',
+      'SNPL-1;id',
+      'snpl-1',
+      'SNPL-',
+      '',
+      'A-1\n'
+    ]) {
       expect(() => linuxUserForTicket(key), key).toThrow()
     }
   })
@@ -155,7 +166,13 @@ describe('firewall and conf helpers', () => {
     const gateway = parseDefaultGateway('default via 10.1.2.3 dev eth0\n')
     const rules = buildFirewallRuleset(gateway)
     expect(rules).toContain('10.1.2.3')
-    for (const range of ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '100.64.0.0/10']) {
+    for (const range of [
+      '10.0.0.0/8',
+      '172.16.0.0/12',
+      '192.168.0.0/16',
+      '169.254.0.0/16',
+      '100.64.0.0/10'
+    ]) {
       expect(rules).toContain(range)
     }
     expect(rules.indexOf('add table inet fw')).toBeLessThan(rules.indexOf('delete table inet fw'))
@@ -163,7 +180,9 @@ describe('firewall and conf helpers', () => {
 
   it('accepts DNS to the nameservers before rejecting the private ranges', () => {
     const rules = buildFirewallRuleset('172.30.192.1', ['10.255.255.254', 'fd00::1'])
-    expect(rules).toContain('ip daddr { 10.255.255.254 } meta l4proto { udp, tcp } th dport 53 accept')
+    expect(rules).toContain(
+      'ip daddr { 10.255.255.254 } meta l4proto { udp, tcp } th dport 53 accept'
+    )
     expect(rules).toContain('ip6 daddr { fd00::1 }')
     expect(rules.indexOf('th dport 53 accept')).toBeLessThan(rules.indexOf('reject'))
     expect(rules.indexOf('oifname "lo" accept')).toBeLessThan(rules.indexOf('th dport 53'))
@@ -171,14 +190,28 @@ describe('firewall and conf helpers', () => {
   })
 
   it('reads nameservers from resolv.conf text', () => {
-    const text = '# x\nnameserver 10.255.255.254\nnameserver fe80::1%eth0\nnameserver nope\nnameserver 10.255.255.254\n'
+    const text =
+      '# x\nnameserver 10.255.255.254\nnameserver fe80::1%eth0\nnameserver nope\nnameserver 10.255.255.254\n'
     expect(parseNameservers(text)).toEqual(['10.255.255.254', 'fe80::1'])
   })
 
   it('validates repo keys strictly', () => {
     expect(() => assertRepoKey('orca')).not.toThrow()
     expect(() => assertRepoKey('my-repo_2.x')).not.toThrow()
-    for (const key of ['', '../x', 'a/b', 'a b', '-rf', '.hidden', 'a..b', 'x.git', 'x.lock', 'a;id', 'a\n', 'a\\b']) {
+    for (const key of [
+      '',
+      '../x',
+      'a/b',
+      'a b',
+      '-rf',
+      '.hidden',
+      'a..b',
+      'x.git',
+      'x.lock',
+      'a;id',
+      'a\n',
+      'a\\b'
+    ]) {
       expect(() => assertRepoKey(key), key).toThrow()
     }
   })
@@ -215,7 +248,9 @@ describe('WslTicketSandbox.ensureReady', () => {
   it('prepares the shared repos folder, safe.directory and the update script as root', async () => {
     const world = makeWorld()
     await new WslTicketSandbox({ runWsl: makeFake(world) }).ensureReady()
-    const prepare = world.calls.filter((call) => call.user === 'root' && call.cmd[0] === '/bin/bash').at(-1)
+    const prepare = world.calls
+      .filter((call) => call.user === 'root' && call.cmd[0] === '/bin/bash')
+      .at(-1)
     expect(prepare?.cmd.slice(-3)).toEqual([
       '/srv/autosfactory/repos',
       'afrepos',
@@ -277,7 +312,9 @@ describe('WslTicketSandbox sessions', () => {
     })
     const useradd = world.calls.find((call) => call.cmd[0] === '/usr/sbin/useradd')
     expect(useradd?.cmd).toContain('-m')
-    expect(world.calls.some((call) => call.cmd[0] === '/usr/bin/chmod' && call.cmd[1] === '700')).toBe(true)
+    expect(
+      world.calls.some((call) => call.cmd[0] === '/usr/bin/chmod' && call.cmd[1] === '700')
+    ).toBe(true)
     const clone = world.calls.find((call) => call.user === 't-snpl-12')
     expect(clone?.cmd).toEqual([
       '/bin/bash',
@@ -314,9 +351,15 @@ describe('WslTicketSandbox sessions', () => {
     const world = makeWorld()
     const sandbox = new WslTicketSandbox({ runWsl: withGetentLookup(world) })
     await expect(sandbox.createSession('../x-1', SOURCE)).rejects.toThrow()
-    await expect(sandbox.createSession('SNPL-1', { ...SOURCE, repoKey: '../orca' })).rejects.toThrow()
-    await expect(sandbox.createSession('SNPL-1', { ...SOURCE, workBranch: 'a b' })).rejects.toThrow()
-    await expect(sandbox.createSession('SNPL-1', { ...SOURCE, baseBranch: '../x' })).rejects.toThrow()
+    await expect(
+      sandbox.createSession('SNPL-1', { ...SOURCE, repoKey: '../orca' })
+    ).rejects.toThrow()
+    await expect(
+      sandbox.createSession('SNPL-1', { ...SOURCE, workBranch: 'a b' })
+    ).rejects.toThrow()
+    await expect(
+      sandbox.createSession('SNPL-1', { ...SOURCE, baseBranch: '../x' })
+    ).rejects.toThrow()
     expect(world.calls).toHaveLength(0)
   })
 
@@ -325,7 +368,9 @@ describe('WslTicketSandbox sessions', () => {
     world.loadedRepos = []
     const sandbox = new WslTicketSandbox({ runWsl: withGetentLookup(world) })
     await expect(sandbox.createSession('SNPL-12', SOURCE)).rejects.toThrow(/updateSharedRepo/)
-    expect(world.calls.some((call) => call.user === 't-snpl-12' && call.cmd[0] === '/bin/bash')).toBe(false)
+    expect(
+      world.calls.some((call) => call.user === 't-snpl-12' && call.cmd[0] === '/bin/bash')
+    ).toBe(false)
   })
 
   it('stop kills processes and keeps the user; destroy removes it; list shows sessions', async () => {
@@ -352,6 +397,7 @@ describe('WslTicketSandbox.updateSharedRepo', () => {
     const bundled: string[][] = []
     const sandbox = new WslTicketSandbox({
       runWsl: makeFake(world),
+      fetchRepo: async () => undefined,
       bundleRepo: async (path, file) => void bundled.push([path, file])
     })
     await sandbox.updateSharedRepo('orca', 'C:\\Users\\k\\orca')
@@ -374,6 +420,7 @@ describe('WslTicketSandbox.updateSharedRepo', () => {
     const failing: RunWsl = async () => fail(1, 'fetch broke')
     const sandbox = new WslTicketSandbox({
       runWsl: failing,
+      fetchRepo: async () => undefined,
       bundleRepo: async (_path, target) => {
         file = target
         await writeFile(target, 'x')
@@ -383,11 +430,41 @@ describe('WslTicketSandbox.updateSharedRepo', () => {
     expect(existsSync(file)).toBe(false)
   })
 
+  it('keeps the last copy and returns a warning when the fetch fails', async () => {
+    const world = makeWorld()
+    let bundled = false
+    const sandbox = new WslTicketSandbox({
+      runWsl: makeFake(world),
+      fetchRepo: async () => {
+        throw new Error('origin is gone')
+      },
+      bundleRepo: async () => void (bundled = true)
+    })
+    const result = await sandbox.updateSharedRepo('orca', 'C:\\p')
+    expect(result.warning).toMatch(/Could not fetch orca.*last copy.*origin is gone/)
+    expect(bundled).toBe(false)
+  })
+
+  it('fails when the fetch fails and no shared copy exists yet', async () => {
+    const missing: RunWsl = async () => fail(1, '')
+    const sandbox = new WslTicketSandbox({
+      runWsl: missing,
+      fetchRepo: async () => {
+        throw new Error('origin is gone')
+      },
+      bundleRepo: async () => undefined
+    })
+    await expect(sandbox.updateSharedRepo('orca', 'C:\\p')).rejects.toThrow(
+      /no earlier copy exists: origin is gone/
+    )
+  })
+
   it('rejects bad repo keys and relative paths before doing anything', async () => {
     const world = makeWorld()
     let called = false
     const sandbox = new WslTicketSandbox({
       runWsl: makeFake(world),
+      fetchRepo: async () => undefined,
       bundleRepo: async () => void (called = true)
     })
     await expect(sandbox.updateSharedRepo('../x', 'C:\\p')).rejects.toThrow()
@@ -401,10 +478,18 @@ describe('WslTicketSandbox.applyPolicy', () => {
   it('installs root-owned, non-writable policy files and returns their paths', async () => {
     const calls: Call[] = []
     const runWsl: RunWsl = async (args, opts) => {
-      calls.push({ user: args[args.indexOf('-u') + 1], cmd: args.slice(args.indexOf('--exec') + 1), opts })
+      calls.push({
+        user: args[args.indexOf('-u') + 1],
+        cmd: args.slice(args.indexOf('--exec') + 1),
+        opts
+      })
       return ok()
     }
-    const policy = effectivePolicy(baselineRules(), { allow: ['Bash(make test)'], ask: [], deny: [] })
+    const policy = effectivePolicy(baselineRules(), {
+      allow: ['Bash(make test)'],
+      ask: [],
+      deny: []
+    })
     const paths = await new WslTicketSandbox({ runWsl }).applyPolicy('SNPL-12', policy)
     expect(paths).toEqual({
       claudeSettings: '/etc/autosfactory/policy/SNPL-12/claude-settings.json',
@@ -417,12 +502,18 @@ describe('WslTicketSandbox.applyPolicy', () => {
       paths.claudeSettings,
       paths.antigravitySettings
     ])
-    expect(JSON.parse(writes[0].opts?.input ?? '').permissions.disableBypassPermissionsMode).toBe('disable')
+    expect(JSON.parse(writes[0].opts?.input ?? '').permissions.disableBypassPermissionsMode).toBe(
+      'disable'
+    )
     expect(JSON.parse(writes[1].opts?.input ?? '').permissions.allow).toContain('Bash(make test)')
-    expect(JSON.parse(writes[2].opts?.input ?? '').permissions.allow).toContain('command(make test)')
+    expect(JSON.parse(writes[2].opts?.input ?? '').permissions.allow).toContain(
+      'command(make test)'
+    )
     const chown = calls.find((call) => call.cmd[0] === '/usr/bin/chown')
     expect(chown?.cmd.slice(1, 3)).toEqual(['root:root', '/etc/claude-code'])
-    const modes = calls.filter((call) => call.cmd[0] === '/usr/bin/chmod').map((call) => call.cmd[1])
+    const modes = calls
+      .filter((call) => call.cmd[0] === '/usr/bin/chmod')
+      .map((call) => call.cmd[1])
     expect(modes).toEqual(['755', '644'])
     const lastWrite = calls.map((call) => call.cmd[0]).lastIndexOf('/usr/bin/tee')
     expect(calls.findIndex((call) => call.cmd[0] === '/usr/bin/chmod')).toBeGreaterThan(lastWrite)
@@ -436,6 +527,11 @@ describe('WslTicketSandbox.applyPolicy', () => {
     await expect(sandbox.applyPolicy('../x-1', policy)).rejects.toThrow()
     expect(world.calls).toHaveLength(0)
     await sandbox.destroySession('SNPL-12')
-    expect(world.calls.some((call) => call.cmd[0] === '/usr/bin/rm' && call.cmd[2] === '/etc/autosfactory/policy/SNPL-12')).toBe(true)
+    expect(
+      world.calls.some(
+        (call) =>
+          call.cmd[0] === '/usr/bin/rm' && call.cmd[2] === '/etc/autosfactory/policy/SNPL-12'
+      )
+    ).toBe(true)
   })
 })
