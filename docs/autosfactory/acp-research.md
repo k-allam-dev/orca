@@ -37,16 +37,17 @@ So the earlier hope (notes, step 2) that Orca's ACP route could give Antigravity
 
 ## 4. Questions from the ticket
 
-| # | Question | Answer |
-|---|---|---|
-| 1 | How is it started and what does it need? | See section 1. It needs the managed download and a Google sign-in. |
-| 2 | Does it work with the Antigravity on this machine? | **No on this PC (Windows):** no build is pinned. Orca does not use the installed `agy` in any case. **Not run.** |
-| 3 | Which messages are supported? | Permission requests (`session/request_permission`) and questions are handled; questions accept one offered choice and no free text [code: `antigravity-dialect.ts`]. Resume and cancel exist in the protocol and in Orca's handling. Usage/quota errors: **[not checked]**. |
-| 4 | Can a stopped session resume? | Yes by design: `resumePreference: 'resume'` because `session/load` replays the whole conversation, which the chat already holds [code]. Conversations are **separate from the `agy` CLI's**, which "cannot resume these sessions" [code comment]. |
-| 5 | Usage limit behaviour? | **[not checked]**: needs a run, or a read of the error handling in `src/main/acp/`. |
-| 6 | What is not supported versus headless `agy -p` and Claude's SDK? | Windows. A shared conversation store with `agy`. A model list before sign-in ("lists its models only in a signed-in session"). An `auto` permission mode. |
+| #   | Question                                                         | Answer                                                                                                                                                                                                                                                                      |
+| --- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | How is it started and what does it need?                         | See section 1. It needs the managed download and a Google sign-in.                                                                                                                                                                                                          |
+| 2   | Does it work with the Antigravity on this machine?               | **No on this PC (Windows):** no build is pinned. Orca does not use the installed `agy` in any case. **Not run.**                                                                                                                                                            |
+| 3   | Which messages are supported?                                    | Permission requests (`session/request_permission`) and questions are handled; questions accept one offered choice and no free text [code: `antigravity-dialect.ts`]. Resume and cancel exist in the protocol and in Orca's handling. Usage/quota errors: **[not checked]**. |
+| 4   | Can a stopped session resume?                                    | Yes by design: `resumePreference: 'resume'` because `session/load` replays the whole conversation, which the chat already holds [code]. Conversations are **separate from the `agy` CLI's**, which "cannot resume these sessions" [code comment].                           |
+| 5   | Usage limit behaviour?                                           | **[not checked]**: needs a run, or a read of the error handling in `src/main/acp/`.                                                                                                                                                                                         |
+| 6   | What is not supported versus headless `agy -p` and Claude's SDK? | Windows. A shared conversation store with `agy`. A model list before sign-in ("lists its models only in a signed-in session"). An `auto` permission mode.                                                                                                                   |
 
 ## 5. Other things worth knowing
+
 - Orca **scrubs** `GEMINI_API_KEY`, `GOOGLE_*`, `AGY_ACP_*`, and a few cloud variables from the server's environment [code: `antigravity-acp-environment.ts`], so the API-key route we skipped in ticket #7 is not used here either.
 - Modes: `ask` -> `default`, `accept-edits` -> `auto_edit`, `full-access` -> `yolo`; "yolo still requests questions and administrative reviews" [code].
 - Private temp directory per session (`privateTempDirectory: true`).
@@ -58,6 +59,27 @@ So the earlier hope (notes, step 2) that Orca's ACP route could give Antigravity
 - The decision for #22/#26 depends on one fact still open: what your target machine is. If the build machine stays Windows, assume no ACP.
 
 ## 7. What is still needed to close this ticket
+
 - A real run on a supported platform: one permission approved, one denied, result recorded. Not possible on this Windows PC.
 - Whether a Windows build exists or WSL can use the Linux one.
 - Usage-limit handling (Q5).
+
+## Seen working: Antigravity CLI on this PC (2026-10-29)
+
+`agy` 1.4.8 (`C:\Users\user\Documents\Github\antigravity-cli\agy.exe`), signed in, tested in an empty temp folder with harmless requests.
+
+| Test                                                                        | Result                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Headless (`-p`), ask it to create a file and run `curl https://example.com` | the file write succeeded with no prompt (permission mode reported as `request-review`); the shell command was **auto-denied**: "a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. command(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools." |
+| `--mode accept-edits`                                                       | shell command still auto-denied                                                                                                                                                                                                                                                                                                                                                                                  |
+| `--mode auto`                                                               | "not available for this account"; continues in the default mode, nothing runs                                                                                                                                                                                                                                                                                                                                    |
+| `--sandbox`                                                                 | shell command still auto-denied (the sandbox does not approve anything)                                                                                                                                                                                                                                                                                                                                          |
+
+Findings:
+
+- Headless Antigravity cannot ask live. Everything that needs the `command` permission is denied unless an allow rule exists or the skip-everything flag is used. This confirms the planning finding in #6 on this machine.
+- The agent's own settings file is `~\.gemini\antigravity-cli\settings.json` (a separate `~\.gemini\settings.json` only holds MCP servers). It has `permissions.allow` (one entry today, written as `command(agy models --help)`), `trustedWorkspaces` and the model.
+- The CLI has `--input-format stream-json` and the tool list contains `ask_permission` and `ask_custom_permission`. Whether a two-way streaming session delivers a live permission request to the caller was **not tested**.
+- The interactive CLI (`agy` without `-p`) was **not tested**; it is the likely way to get live prompts on Windows, as with Claude Code in Orca's terminal, but that is unverified.
+
+**Not tested yet:** whether an allow rule is honoured headless (needs a temporary edit of Kareem's settings file, which is a standing setting, so it waits for his OK), the streaming two-way mode, the interactive prompt, and Orca's ACP route inside the Linux sandbox.
