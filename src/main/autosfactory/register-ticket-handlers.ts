@@ -108,6 +108,7 @@ export function registerTicketHandlers(userDataPath: string): void {
     listRepos: notWiredListRepos
   })
   refresher.start()
+  void refresher.refreshNow()
   ipcMain.handle('autosfactory:repos:refresh', () => refresher.refreshNow())
   ipcMain.handle('autosfactory:repos:refresh-status', () => refresher.getStatus())
   const requireKey = (args: { key?: unknown } | undefined): string => {

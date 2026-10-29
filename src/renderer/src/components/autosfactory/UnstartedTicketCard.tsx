@@ -48,6 +48,11 @@ export function UnstartedTicketCard({
           {ticket.lastError}
         </div>
       ) : null}
+      {ticket.lastWarning ? (
+        <div className="mt-1 text-amber-600" data-autosfactory-last-warning="">
+          {ticket.lastWarning}
+        </div>
+      ) : null}
       {alerts.map((alert) => (
         <div key={alert.id} className="mt-1 flex items-center gap-1 text-amber-600">
           <span className="min-w-0 flex-1">{alertText(alert)}</span>

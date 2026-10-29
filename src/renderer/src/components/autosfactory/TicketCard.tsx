@@ -56,6 +56,11 @@ export const TicketCard = memo(function TicketCard({
           {ticket.lastError}
         </div>
       ) : null}
+      {ticket.lastWarning ? (
+        <div className="line-clamp-2 text-[11px] text-amber-600" data-autosfactory-last-warning="">
+          {ticket.lastWarning}
+        </div>
+      ) : null}
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {ticket.agent ? (
           <>
